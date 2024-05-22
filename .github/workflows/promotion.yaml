@@ -1,0 +1,30 @@
+name: Promote tracks
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # Runs every midnight
+
+permissions:
+  contents: read
+
+jobs:
+  promotion:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checking out repo
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install snapcraft
+        run: |
+          sudo snap install snapcraft --classic
+      - name: Run track promotion
+        run: |
+          SNAPCRAFT_STORE_CREDENTIALS=${{ secrets.SNAPSTORE_AUTH_TOKEN }} ./scripts/promote-tracks.py
