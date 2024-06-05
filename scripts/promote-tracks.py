@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import logging
 import sys
 import datetime
 import json
@@ -36,6 +37,9 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0",
 }
 
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("promote-tracks")
+
 
 def get_snap_info(snap_name):
     req = urllib.request.Request(SNAPSTORE_API + snap_name, headers=HEADERS)
@@ -43,10 +47,10 @@ def get_snap_info(snap_name):
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read().decode())
     except urllib.error.HTTPError as e:
-        print(f"HTTPError ({req.full_url}): {e.code} {e.reason}")
+        log.exception("HTTPError ({%s}): {%s} {%s}", req.full_url, e.code, e.reason)
         sys.exit(1)
     except urllib.error.URLError as e:
-        print(f"URLError ({req.full_url}): {e.reason}")
+        log.exception("URLError ({%s}): {%s}", req.full_url, e.reason)
         sys.exit(1)
 
 
@@ -62,6 +66,7 @@ def check_and_promote(snap_info, dry_run: bool):
         channel = channel_info["channel"]
         track = channel["track"]
         risk = channel["risk"]
+        arch = channel["architecture"]
         next_risk = (
             RISK_LEVELS[RISK_LEVELS.index(risk) + 1]
             if RISK_LEVELS.index(risk) < len(RISK_LEVELS) - 1
@@ -70,6 +75,7 @@ def check_and_promote(snap_info, dry_run: bool):
         revision = channel_info["revision"]
 
         if track in IGNORE_TRACKS or not next_risk:
+            log.debug("Skipping track {%s}/{%s}", track, risk)
             continue
 
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -79,6 +85,7 @@ def check_and_promote(snap_info, dry_run: bool):
             released_at_date = datetime.datetime.fromisoformat(released_at)
         else:
             released_at_date = None
+        log.info("Evaluate %15s/%-10s rev=%s for arch=%s released at %s", track, risk, revision, arch, released_at_date.isoformat())
 
         if (
             released_at_date
@@ -90,12 +97,12 @@ def check_and_promote(snap_info, dry_run: bool):
                 # The track has not yet a stable release.
                 # The first stable release requires blessing from SolQA and needs to be promoted manually.
                 # Follow-up patches do not require this.
-                print(
-                    f"SolQA blessing required to promote first stable release for {track}. Skipping..."
+                log.info(
+                    "SolQA blessing required to promote first stable release for %s. Skipping...", track
                 )
             else:
-                print(
-                    f"Promoting revision {revision} from {risk} to {next_risk} for track {track}"
+                log.info(
+                    "Promoting revision %s from %s to %s for track %s", revision, risk, next_risk, track
                 )
                 if not dry_run:
                     release_revision(revision, f"{track}/{next_risk}")
