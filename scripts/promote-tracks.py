@@ -89,7 +89,7 @@ def check_and_promote(snap_info, dry_run: bool):
 
         if (
             released_at_date
-            and (now - released_at_date).days > DAYS_TO_STAY_IN_RISK[risk]
+            and (now - released_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
             and channels.get(f"{track}/{risk}", {}).get("revision")
             != channels.get(f"{track}/{next_risk}", {}).get("revision")
         ):
