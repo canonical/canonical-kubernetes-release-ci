@@ -9,6 +9,8 @@ import subprocess
 import urllib.request
 import urllib.error
 
+from pathlib import Path
+
 USAGE = "Promote revisions for Canonical Kubernetes tracks"
 
 DESCRIPTION = """
@@ -85,7 +87,14 @@ def check_and_promote(snap_info, dry_run: bool):
             released_at_date = datetime.datetime.fromisoformat(released_at)
         else:
             released_at_date = None
-        log.info("Evaluate %15s/%-10s rev=%s for arch=%s released at %s", track, risk, revision, arch, released_at_date.isoformat())
+        log.info(
+            "Evaluate %15s/%-10s rev=%s for arch=%s released at %s",
+            track,
+            risk,
+            revision,
+            arch,
+            released_at_date.isoformat(),
+        )
 
         if (
             released_at_date
@@ -93,16 +102,21 @@ def check_and_promote(snap_info, dry_run: bool):
             and channels.get(f"{track}/{risk}", {}).get("revision")
             != channels.get(f"{track}/{next_risk}", {}).get("revision")
         ):
-            if next_risk == "stable" and not f"{track}/stable" in channels.keys():
+            if next_risk == "stable" and f"{track}/stable" not in channels.keys():
                 # The track has not yet a stable release.
                 # The first stable release requires blessing from SolQA and needs to be promoted manually.
                 # Follow-up patches do not require this.
                 log.info(
-                    "SolQA blessing required to promote first stable release for %s. Skipping...", track
+                    "SolQA blessing required to promote first stable release for %s. Skipping...",
+                    track,
                 )
             else:
                 log.info(
-                    "Promoting revision %s from %s to %s for track %s", revision, risk, next_risk, track
+                    "Promoting revision %s from %s to %s for track %s",
+                    revision,
+                    risk,
+                    next_risk,
+                    track,
                 )
                 if not dry_run:
                     release_revision(revision, f"{track}/{next_risk}")
@@ -110,7 +124,7 @@ def check_and_promote(snap_info, dry_run: bool):
 
 def main():
     arg_parser = argparse.ArgumentParser(
-        "promote-tracks.py", usage=USAGE, description=DESCRIPTION
+        Path(__file__).name, usage=USAGE, description=DESCRIPTION
     )
     arg_parser.add_argument("--dry-run", default=False, action="store_true")
     args = arg_parser.parse_args(sys.argv[1:])

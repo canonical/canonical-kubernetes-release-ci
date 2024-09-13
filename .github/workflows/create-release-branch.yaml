@@ -1,18 +1,21 @@
-name: Promote tracks
+name: Confirm Snap Builds
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 0 * * *'  # Runs every midnight
+    inputs:
+      branch:
+        type: string
+        description: Run on which branch
 
 permissions:
   contents: read
 
 jobs:
-  promotion:
+  release-track:
     runs-on: ubuntu-latest
     env:
-      SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
+      CHARMCRAFT_AUTH : ${{ secrets.CHARMCRAFT_AUTH }}
+      LPCREDS_B64: ${{ secrets.LP_CREDS }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@v2
@@ -26,9 +29,11 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
       - run: pip install -r scripts/requirements.txt
-      - name: Install snapcraft
+      - name: Install tools
         run: |
           sudo snap install snapcraft --classic
-      - name: Run track promotion
+      - run: 'echo $LPCREDS_B64 | base64 --decode > lp_creds'
+        shell: bash
+      - name: Ensure Tracks and Recipes
         run: |
-          ./scripts/promote_tracks.py
+          LPCREDS=./lp_creds scripts/ensure_snap_builds.py --branch ${{ inputs.branch }}
