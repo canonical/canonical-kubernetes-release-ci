@@ -83,27 +83,50 @@ def ensure_lp_recipe(
     lp_owner = lp.people[LP_OWNER]
     lp_repo = lp.git_repositories.getDefaultRepository(target=lp_project)
     lp_ref = lp_repo.getRefByPath(path=flavor_branch)
+    lp_archive = lp.archives.getByReference(reference="ubuntu")
+    lp_snappy_series = lp.snappy_serieses.getByName(name="16")
     manifest = dict(
         auto_build=True,
+        auto_build_archive=lp_archive,
         auto_build_pocket="Updates",
         auto_build_channels={"snapcraft": "8.x/stable"},
         description=f"Recipe for {SNAP_NAME} {flavor_branch}",
         git_ref=lp_ref,
-        git_repository=lp_repo,
         information_type="Public",
         name=recipe_name,
         owner=lp_owner,
+        processors=[
+            "/+processors/amd64",
+            "/+processors/arm64",
+        ],
         store_channels=channels,
+        store_name=SNAP_NAME,
         store_upload=True,
+        store_series=lp_snappy_series,
     )
     try:
         recipe = lp.snaps.getByName(name=recipe_name, owner=lp_owner)
     except NotFound:
+        recipe = None
+
+    if not recipe:
         LOG.info(" Creating LP recipe %s", recipe_name)
-        (not dry_run) and lp.snaps.new(project=lp_project, **manifest)
-    else:
+        params = dict(**manifest)
+        params.pop("auto_build_channels")
+        recipe = (not dry_run) and lp.snaps.new(project=lp_project, **params)
+
+    if recipe:
         LOG.info(" Confirming LP recipe %s", recipe_name)
         updated = set()
+
+        recipe_processors = [
+            "/" + "/".join(p.self_link.split("/")[-2:]) for p in recipe.processors
+        ]
+        if (processors := manifest.pop("processors")) != recipe_processors:
+            updated |= {"processors"}
+            LOG.info("  Update processors: %s -> %s", recipe_processors, processors)
+            (not dry_run) and recipe.setProcessors(processors=processors)
+
         for key, value in manifest.items():
             lp_value = getattr(recipe, key)
             diff = lp_value != value
@@ -149,7 +172,9 @@ def main():
     arg_parser = argparse.ArgumentParser(
         Path(__file__).name, usage=USAGE, description=DESCRIPTION
     )
-    arg_parser.add_argument("--branch", default="main", type=str, help="Tip branch ")
+    arg_parser.add_argument(
+        "--branches", nargs="*", type=str, help="Specific branches to confirm"
+    )
     arg_parser.add_argument(
         "--dry-run",
         default=False,
@@ -166,18 +191,24 @@ def main():
     )
     args = arg_parser.parse_args()
     setup_logging(args)
+    branches = args.branches
 
-    if not util.is_git_branch(SNAP_REPO, args.branch):
-        LOG.error("Branch %s does not exist", args.branch)
-        sys.exit(1)
-    if not SRC_BRANCH.match(args.branch):
-        LOG.warning(
-            "Branch '%s' is not a supported branch r/%s/",
-            args.branch,
-            SRC_BRANCH.pattern,
-        )
-        sys.exit(1)
-    prepare_track_builds(args.branch, args)
+    if not branches:
+        all_branches = util.git_branches(SNAP_REPO)
+        branches = [b for b in all_branches if SRC_BRANCH.match(b)]
+        LOG.info("No branches specified, checking '%s'", ", ".join(branches))
+    for branch in branches:
+        if not util.is_git_branch(SNAP_REPO, branch):
+            LOG.error("Branch %s does not exist", branch)
+            continue
+        if not SRC_BRANCH.match(branch):
+            LOG.warning(
+                "Skipping branch '%s' - not a supported branch r/%s/",
+                branch,
+                SRC_BRANCH.pattern,
+            )
+            continue
+        prepare_track_builds(branch, args)
 
 
 execd = __name__ == "__main__"

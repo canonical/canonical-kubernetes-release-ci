@@ -87,6 +87,13 @@ def is_git_branch(repo: str, branch_name: str) -> bool:
     )
 
 
+def git_branches(repo: str) -> list[str]:
+    return [
+        "/".join(ref.split("/")[2:])
+        for ref in parse_output(["git", "ls-remote", "--heads", repo]).splitlines()
+    ]
+
+
 def git_branch(dir: str) -> str:
     return parse_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=dir)
 

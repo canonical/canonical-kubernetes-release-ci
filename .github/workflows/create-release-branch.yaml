@@ -3,9 +3,11 @@ name: Confirm Snap Builds
 on:
   workflow_dispatch:
     inputs:
-      branch:
+      branches:
         type: string
-        description: Run on which branch
+        required: false
+        default: ""  # defaults to all matching branches (main and release branches)
+        description: Run on which k8s-snap branches (space separated)
 
 permissions:
   contents: read
@@ -36,4 +38,4 @@ jobs:
         shell: bash
       - name: Ensure Tracks and Recipes
         run: |
-          LPCREDS=./lp_creds scripts/ensure_snap_builds.py --branch ${{ inputs.branch }}
+          LPCREDS=./lp_creds scripts/ensure_snap_builds.py --branch ${{ inputs.branches }}
