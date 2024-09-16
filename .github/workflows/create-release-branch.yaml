@@ -7,7 +7,7 @@ on:
         type: string
         required: false
         default: ""  # defaults to all matching branches (main and release branches)
-        description: Run on which k8s-snap branches (space separated)
+        description: Run on which k8s-snap branches (space separated). If empty, it will run on all matching branches (main and release branches).
 
 permissions:
   contents: read
