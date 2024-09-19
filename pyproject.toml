@@ -1,0 +1,8 @@
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B404","B603"]
+
+[tool.mypy]
+ignore_missing_imports = true
+explicit_package_bases = true
+namespace_packages = true

@@ -1,0 +1,22 @@
+name: Inclusive Naming, Linting, and Unit Tests
+on: 
+  - pull_request
+
+jobs:
+  call-inclusive-naming-check:
+    name: Inclusive Naming
+    uses: canonical/inclusive-naming/.github/workflows/woke.yaml@main
+    with:
+      fail-on-error: "true"
+
+  lint-unit:
+    name: Lint and Unit Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install tox
+      - name: Unit, Lint, Static Analysis
+        run: tox -vve unit,lint,static

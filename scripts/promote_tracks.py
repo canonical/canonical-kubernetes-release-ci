@@ -25,58 +25,56 @@ IGNORE_TRACKS = ["latest"]
 
 # The snap risk levels, used to find the next risk level for a revision.
 RISK_LEVELS = ["edge", "beta", "candidate", "stable"]
+NEXT_RISK = RISK_LEVELS[1:] + [None]
 
 # Revisions stay at a certain risk level for some days before being promoted.
 DAYS_TO_STAY_IN_RISK = {"edge": 1, "beta": 3, "candidate": 5}
 
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("promote-tracks")
-
-
-def release_revision(revision, next_channel):
+def release_revision(revision, channel):
     # Note: we cannot use `snapcraft promote` here because it does not allow to promote from edge to beta without manual confirmation.
-    subprocess.run(["snapcraft", "release", "k8s", str(revision), next_channel])
+    subprocess.run(["/snap/bin/snapcraft", "release", "k8s", str(revision), channel])
 
 
 def check_and_promote(snap_info, dry_run: bool):
     channels = {c["channel"]["name"]: c for c in snap_info["channel-map"]}
 
-    for channel_info in snap_info["channel-map"]:
+    def sorter(info):
+        return (info["channel"]["track"], RISK_LEVELS.index(info["channel"]["risk"]))
+
+    for channel_info in sorted(snap_info["channel-map"], key=sorter, reverse=True):
         channel = channel_info["channel"]
         track = channel["track"]
         risk = channel["risk"]
         arch = channel["architecture"]
-        next_risk = (
-            RISK_LEVELS[RISK_LEVELS.index(risk) + 1]
-            if RISK_LEVELS.index(risk) < len(RISK_LEVELS) - 1
-            else None
-        )
+        next_risk = NEXT_RISK[RISK_LEVELS.index(risk)]
         revision = channel_info["revision"]
+        chan_log = logging.getLogger(f"{logger_name} {track:>15}/{risk:<9}")
 
-        if track in IGNORE_TRACKS or not next_risk:
-            log.debug("Skipping track {%s}/{%s}", track, risk)
+        if not next_risk:
+            chan_log.debug("Skipping promoting stable")
+            continue
+
+        if track in IGNORE_TRACKS:
+            chan_log.debug("Skipping ignored track")
             continue
 
         now = datetime.datetime.now(datetime.timezone.utc)
 
-        released_at = channel.get("released-at")
-        if released_at:
-            released_at_date = datetime.datetime.fromisoformat(released_at)
+        if created_at := channel_info["created-at"]:
+            created_at_date = datetime.datetime.fromisoformat(created_at)
         else:
-            released_at_date = None
-        log.info(
-            "Evaluate %15s/%-10s rev=%s for arch=%s released at %s",
-            track,
-            risk,
+            created_at_date = None
+        chan_log.debug(
+            "Evaluate rev=%-5s arch=%s created at %s",
             revision,
             arch,
-            released_at_date.isoformat(),
+            created_at,
         )
 
         if (
-            released_at_date
-            and (now - released_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
+            created_at_date
+            and (now - created_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
             and channels.get(f"{track}/{risk}", {}).get("revision")
             != channels.get(f"{track}/{next_risk}", {}).get("revision")
         ):
@@ -84,20 +82,21 @@ def check_and_promote(snap_info, dry_run: bool):
                 # The track has not yet a stable release.
                 # The first stable release requires blessing from SolQA and needs to be promoted manually.
                 # Follow-up patches do not require this.
-                log.info(
-                    "SolQA blessing required to promote first stable release for %s. Skipping...",
-                    track,
+                chan_log.warning(
+                    "Approval rev=%-5s arch=%s to %s needed by SolQA",
+                    revision,
+                    arch,
+                    next_risk,
                 )
             else:
-                log.info(
-                    "Promoting revision %s from %s to %s for track %s",
+                chan_log.info(
+                    "Promotes rev=%-5s arch=%s to %s%s",
                     revision,
-                    risk,
+                    arch,
                     next_risk,
-                    track,
+                    " (dry-run)" if dry_run else "",
                 )
-                if not dry_run:
-                    release_revision(revision, f"{track}/{next_risk}")
+                (not dry_run) and release_revision(revision, f"{track}/{next_risk}")
 
 
 def main():

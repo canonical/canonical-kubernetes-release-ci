@@ -53,7 +53,7 @@ def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
                     )
 
 
-def tip_branches(branches: Iterable[str]) -> Generator[None, str, None]:
+def tip_branches(branches: Iterable[str]) -> Generator[str, None, None]:
     for branch in branches:
         if not util.TIP_BRANCH.match(branch):
             LOG.warning(

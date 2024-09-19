@@ -2,7 +2,7 @@ import contextlib
 import logging
 import tempfile
 from pathlib import Path
-from typing import Any, Generator, List
+from typing import Any, Dict, Generator
 
 from util.util import parse_output
 
@@ -35,14 +35,16 @@ def clone(
 
 def is_branch(repo: str, branch_name: str) -> bool:
     commits = _commit_sha1_per_branch(repo, branch_name)
-    return f"refs/heads/{branch_name}" in commits.keys()
+    return f"refs/heads/{branch_name}" in commits
 
 
-def _commit_sha1_per_branch(repo: str, branch_name: None | str = None) -> List[str]:
+def _commit_sha1_per_branch(
+    repo: str, branch_name: None | str = None
+) -> Dict[str, str]:
     out = parse_output(
         ["git", "ls-remote", "--heads", repo] + ([branch_name] if branch_name else [])
     )
-    return dict(reversed(line.split()) for line in out.splitlines())
+    return dict(tuple(reversed(line.split(maxsplit=1))) for line in out.splitlines())
 
 
 def which_branch(dir: Path) -> str:
@@ -53,6 +55,6 @@ def commit_sha1(dir: Path) -> str:
     return parse_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=dir)
 
 
-def ls_branches(repo: str) -> Generator[None, str, None]:
-    for ref in _commit_sha1_per_branch(repo).keys():
+def ls_branches(repo: str) -> Generator[str, None, None]:
+    for ref in _commit_sha1_per_branch(repo):
         yield "/".join(ref.split("/")[2:])
