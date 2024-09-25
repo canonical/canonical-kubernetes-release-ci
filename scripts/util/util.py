@@ -22,7 +22,7 @@ def flavors(dir: str) -> list[str]:
     patches = set(
         Path(f).relative_to(patch_dir).parents[0] for f in output.splitlines()
     )
-    return [p.name for p in patches] + ["classic"]
+    return sorted([p.name for p in patches] + ["classic"])
 
 
 def recipe_name(flavor: str, ver: semver.Version, tip: bool) -> str:
