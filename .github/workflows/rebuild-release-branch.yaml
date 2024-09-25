@@ -1,0 +1,39 @@
+name: Rebuild Release Branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      branches:
+        type: string
+        required: false
+        default: ""  # defaults to all matching branches (main and release branches)
+        description: Run on which k8s-snap branches (space separated). If empty, it will run on all matching branches (main and release branches).
+  schedule:
+    - cron: '0 0 * * 0'  # Runs weekly on Sunday
+
+permissions:
+  contents: read
+
+jobs:
+  release-track:
+    runs-on: ubuntu-latest
+    env:
+      LPCREDS_B64: ${{ secrets.LP_CREDS }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checking out repo
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - run: pip install -r scripts/requirements.txt
+      - run: 'echo $LPCREDS_B64 | base64 --decode > lp_creds'
+        shell: bash
+      - name: Rebuild Branches
+        run: |
+          LPCREDS=./lp_creds scripts/request_builds.py --branch ${{ inputs.branches }}

@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
-import logging
-import sys
 import datetime
-import json
+import logging
 import subprocess
-import urllib.request
-import urllib.error
-
+import sys
 from pathlib import Path
+
+import util.snapstore as snapstore
+import util.util as util
 
 USAGE = "Promote revisions for Canonical Kubernetes tracks"
 
@@ -22,9 +21,6 @@ The script will only promote a revision to stable if there is already another re
 The first stable release for each track requires blessing from SolQA and is promoted manually.
 """
 
-SNAPSTORE_API = "https://api.snapcraft.io/v2/snaps/info/"
-PROMOTE_API_URL = "https://dashboard.snapcraft.io/dev/api/snap-release"
-SNAP_NAME = "k8s"
 IGNORE_TRACKS = ["latest"]
 
 # The snap risk levels, used to find the next risk level for a revision.
@@ -33,27 +29,9 @@ RISK_LEVELS = ["edge", "beta", "candidate", "stable"]
 # Revisions stay at a certain risk level for some days before being promoted.
 DAYS_TO_STAY_IN_RISK = {"edge": 1, "beta": 3, "candidate": 5}
 
-# Headers for Snap Store API request
-HEADERS = {
-    "Snap-Device-Series": "16",
-    "User-Agent": "Mozilla/5.0",
-}
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("promote-tracks")
-
-
-def get_snap_info(snap_name):
-    req = urllib.request.Request(SNAPSTORE_API + snap_name, headers=HEADERS)
-    try:
-        with urllib.request.urlopen(req) as response:
-            return json.loads(response.read().decode())
-    except urllib.error.HTTPError as e:
-        log.exception("HTTPError ({%s}): {%s} {%s}", req.full_url, e.code, e.reason)
-        sys.exit(1)
-    except urllib.error.URLError as e:
-        log.exception("URLError ({%s}): {%s}", req.full_url, e.reason)
-        sys.exit(1)
 
 
 def release_revision(revision, next_channel):
@@ -126,12 +104,16 @@ def main():
     arg_parser = argparse.ArgumentParser(
         Path(__file__).name, usage=USAGE, description=DESCRIPTION
     )
-    arg_parser.add_argument("--dry-run", default=False, action="store_true")
-    args = arg_parser.parse_args(sys.argv[1:])
+    args = util.setup_arguments(arg_parser)
 
-    snap_info = get_snap_info(SNAP_NAME)
+    snap_info = snapstore.info(util.SNAP_NAME)
     check_and_promote(snap_info, args.dry_run)
 
 
-if __name__ == "__main__":
+is_main = __name__ == "__main__"
+logger_name = Path(sys.argv[0]).stem if is_main else __name__
+LOG = logging.getLogger(logger_name)
+if is_main:
     main()
+else:
+    LOG.setLevel(logging.DEBUG)
