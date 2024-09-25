@@ -27,47 +27,43 @@ def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
     client = lp.client()
     owner = client.people[util.LP_OWNER]
     for branch in branches:
+        LOG.info("Cloning tip branch %s", branch)
         with repo.clone(util.SNAP_REPO, branch) as dir:
             version_file = dir / "build-scripts/components/kubernetes/version"
             branch_ver = version_file.read_text().strip()
             ver = semver.Version.parse(branch_ver.strip("v"))
             flavors = util.flavors(dir)
 
-            LOG.info("Current version detected %s", branch_ver)
+            LOG.info("  Kubernetes version detected %s", branch_ver)
             tip = branch == "main"
 
             flavors = util.flavors(dir)
-            for flavour in flavors:
-                recipe_name = util.recipe_name(flavour, ver, tip)
-
+            for flavor in flavors:
+                recipe_name = util.recipe_name(flavor, ver, tip)
+                LOG.info("  Searching for recipe %s", recipe_name)
                 if recipe := client.snaps.getByName(owner=owner, name=recipe_name):
-                    LOG.info("Requesting build for %s/%s", branch, flavour)
                     archive = recipe.auto_build_archive
                     channels = recipe.auto_build_channels
                     pocket = recipe.auto_build_pocket
+
+                    dry_msg = " (dry-run)" if args.dry_run else ""
+                    LOG.info("  Requesting build for %s%s", recipe_name, dry_msg)
                     (not args.dry_run) and recipe.requestBuilds(
                         archive=archive, channels=channels, pocket=pocket
                     )
 
 
-def filter_branches(branches: Iterable[str]) -> Generator[None, str, None]:
+def tip_branches(branches: Iterable[str]) -> Generator[None, str, None]:
     for branch in branches:
         if not util.TIP_BRANCH.match(branch):
             LOG.warning(
-                "Skipping branch '%s' - not a supported branch r/%s/",
+                "Skipping branch '%s' - not a tip branch r/%s/",
                 branch,
                 util.TIP_BRANCH.pattern,
             )
             continue
         if not repo.is_branch(util.SNAP_REPO, branch):
             LOG.error("Branch %s does not exist", branch)
-            continue
-        if not util.TIP_BRANCH.match(branch):
-            LOG.warning(
-                "Skipping branch '%s' - not a supported branch r/%s/",
-                branch,
-                util.TIP_BRANCH.pattern,
-            )
             continue
         yield branch
 
@@ -83,10 +79,9 @@ def main():
     branches = args.branches
 
     if not branches:
-        all_branches = repo.ls_branches(util.SNAP_REPO)
-        branches = [b for b in all_branches if util.TIP_BRANCH.match(b)]
-        LOG.info("No branches specified, checking '%s'", ", ".join(branches))
-    rebuild_branches(filter_branches(branches), args)
+        branches = repo.ls_branches(util.SNAP_REPO)
+        LOG.info("No branches specified, checking all branches")
+    rebuild_branches(tip_branches(branches), args)
 
 
 is_main = __name__ == "__main__"
