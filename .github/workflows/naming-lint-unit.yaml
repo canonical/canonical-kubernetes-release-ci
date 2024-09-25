@@ -12,6 +12,8 @@ jobs:
   lint-unit:
     name: Lint and Unit Tests
     runs-on: ubuntu-22.04
+    env:
+      TERM: xterm-256color
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,4 +21,4 @@ jobs:
           python-version: "3.12"
       - run: pip install tox
       - name: Unit, Lint, Static Analysis
-        run: tox -vve unit,lint,static
+        run: tox -vve unit,lint,static -- --color=yes

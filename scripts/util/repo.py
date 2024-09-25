@@ -1,17 +1,21 @@
 import contextlib
 import logging
+import os
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Generator
 
-from util.util import parse_output
-
 LOG = logging.getLogger(__name__)
+
+
+def _parse_output(*args, **kwargs) -> str:
+    return subprocess.check_output(*args, text=True, **kwargs).strip()
 
 
 @contextlib.contextmanager
 def clone(
-    repo_url: str, repo_tag: str, shallow: bool = True
+    repo_url: str, repo_tag: str | None = None, shallow: bool = True
 ) -> Generator[Path, Any, Any]:
     """
     Clone a git repository on a temporary directory and return the directory.
@@ -25,11 +29,13 @@ def clone(
     """
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        cmd = ["git", "clone", repo_url, tmpdir, "-b", repo_tag]
+        cmd = ["git", "clone", repo_url, tmpdir]
+        if repo_tag:
+            cmd.extend(["-b", repo_tag])
         if shallow:
             cmd.extend(["--depth", "1"])
         LOG.info("Cloning %s @ %s (shallow=%s)", repo_url, repo_tag, shallow)
-        parse_output(cmd)
+        _parse_output(cmd)
         yield Path(tmpdir)
 
 
@@ -41,20 +47,38 @@ def is_branch(repo: str, branch_name: str) -> bool:
 def _commit_sha1_per_branch(
     repo: str, branch_name: None | str = None
 ) -> Dict[str, str]:
-    out = parse_output(
+    out = _parse_output(
         ["git", "ls-remote", "--heads", repo] + ([branch_name] if branch_name else [])
     )
-    return dict(tuple(reversed(line.split(maxsplit=1))) for line in out.splitlines())
+    vals = dict(line.split(maxsplit=1) for line in out.splitlines())
+    return {v: k for k, v in vals.items()}
 
 
-def which_branch(dir: Path) -> str:
-    return parse_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=dir)
+def default_branch(repo: str) -> str:
+    out = _parse_output(["git", "ls-remote", "--symref", repo, "HEAD"])
+    default = next(line for line in out.splitlines() if "ref:" in line)
+    return default.split()[1].split("refs/heads/")[1]
 
 
-def commit_sha1(dir: Path) -> str:
-    return parse_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=dir)
+def commit_sha1(dir: os.PathLike, short: bool = False) -> str:
+    cmd = ["git", "rev-parse"] + (short and ["--short"] or []) + ["HEAD"]
+    return _parse_output(cmd, cwd=dir).strip()
 
 
 def ls_branches(repo: str) -> Generator[str, None, None]:
     for ref in _commit_sha1_per_branch(repo):
         yield "/".join(ref.split("/")[2:])
+
+
+def ls_tree(dir: os.PathLike, patch_dir: None | os.PathLike = None) -> list[str]:
+    return sorted(
+        subprocess.check_output(
+            ["git", "ls-tree", "--full-tree", "-r", "--name-only", "HEAD"] + [patch_dir]
+            if patch_dir
+            else [],
+            text=True,
+            cwd=dir,
+        )
+        .strip()
+        .splitlines()
+    )

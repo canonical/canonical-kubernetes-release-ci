@@ -1,10 +1,10 @@
 import argparse
 import logging
 import re
-import subprocess
 from pathlib import Path
 
 import semver
+import util.repo as repo
 
 LOG = logging.getLogger(__name__)
 SNAP_NAME: str = "k8s"
@@ -15,13 +15,8 @@ TIP_BRANCH = re.compile(r"^(?:main)|^(?:release-\d+\.\d+)$")
 
 def flavors(dir: str) -> list[str]:
     patch_dir = Path("build-scripts/patches")
-    output = parse_output(
-        ["git", "ls-tree", "--full-tree", "-r", "--name-only", "HEAD", patch_dir],
-        cwd=dir,
-    )
-    patches = set(
-        Path(f).relative_to(patch_dir).parents[0] for f in output.splitlines()
-    )
+    output = repo.ls_tree(dir, patch_dir)
+    patches = set(Path(f).relative_to(patch_dir).parents[0] for f in output)
     return sorted([p.name for p in patches] + ["classic"])
 
 
@@ -31,18 +26,10 @@ def recipe_name(flavor: str, ver: semver.Version, tip: bool) -> str:
     return f"{SNAP_NAME}-snap-{ver.major}.{ver.minor}-{flavor}"
 
 
-def parse_output(*args, **kwargs) -> str:
-    return (
-        subprocess.run(*args, capture_output=True, check=True, **kwargs)
-        .stdout.decode()
-        .strip()
-    )
-
-
 def setup_logging(args: argparse.Namespace):
     FORMAT = "%(name)20s %(asctime)s %(levelname)8s - %(message)s"
     logging.basicConfig(format=FORMAT)
-    if args.loglevel:
+    if args.loglevel != logging.getLevelName(LOG.root.level):
         LOG.root.setLevel(level=args.loglevel.upper())
 
 
