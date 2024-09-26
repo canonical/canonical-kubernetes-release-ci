@@ -1,13 +1,19 @@
+import argparse
+import contextlib
 import unittest.mock as mock
 
 import pytest
 from freezegun import freeze_time
-from promote_tracks import check_and_promote
+from promote_tracks import create_proposal
+
+MOCK_BRANCH = "branchy-mcbranchface"
+args = argparse.Namespace(dry_run=False, loglevel="INFO", gh_action=False)
 
 
-@pytest.fixture
-def release_revision():
-    with mock.patch("promote_tracks.release_revision") as mocked:
+@pytest.fixture(autouse=True)
+def branch_from_track():
+    with mock.patch("util.lp.branch_from_track") as mocked:
+        mocked.return_value = MOCK_BRANCH
         yield mocked
 
 
@@ -28,11 +34,28 @@ def _create_channel(track: str, risk: str, revision: int):
     }
 
 
-def _make_channel_map(track: str, risk: str, has_stable: bool = False):
+def _expected_proposals(next_risk, risk, revision):
+    return [
+        {
+            "name": f"k8s-tracky-{next_risk}-amd64",
+            "branch": MOCK_BRANCH,
+            "lxd-images": ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:24.04"],
+            "runner-labels": ["X64", "self-hosted"],
+            "upgrade-channels": [[f"tracky/{next_risk}", f"tracky/{risk}"]],
+            "snap-channel": f"tracky/{next_risk}",
+            "revision": revision,
+        }
+    ]
+
+
+@contextlib.contextmanager
+def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
     snap_info = {"channel-map": [_create_channel(track, risk, 2)]}
-    if has_stable:
-        snap_info["channel-map"].append(_create_channel(track, "stable", 1))
-    return snap_info
+    if extra_risk:
+        snap_info["channel-map"].append(_create_channel(track, extra_risk, 1))
+    with mock.patch("promote_tracks.snapstore.info") as mocked:
+        mocked.return_value = snap_info
+        yield snap_info
 
 
 @pytest.mark.parametrize(
@@ -43,42 +66,50 @@ def _make_channel_map(track: str, risk: str, has_stable: bool = False):
         ("candidate", "stable", "2000-01-06"),
     ],
 )
-def test_risk_promotable(risk, next_risk, now, release_revision):
-    with freeze_time(now):
-        check_and_promote(
-            _make_channel_map("tracky", risk, has_stable=True), dry_run=False
-        )
-    release_revision.assert_called_once_with(2, f"tracky/{next_risk}")
+def test_risk_promotable(risk, next_risk, now):
+    with freeze_time(now), _make_channel_map("tracky", risk, extra_risk="stable"):
+        proposals = create_proposal(args)
+    assert proposals == _expected_proposals(next_risk, risk, 2)
 
 
 @pytest.mark.parametrize(
     "risk, now",
-    [("edge", "2000-01-01"), ("beta", "2000-01-03"), ("candidate", "2000-01-05")],
+    [("edge", "2000-01-01")],
 )
-def test_risk_not_yet_promotable(risk, now, release_revision):
-    with freeze_time(now):
-        check_and_promote(_make_channel_map("tracky", risk), dry_run=False)
-    release_revision.assert_not_called(), "Channel should not be promoted too soon"
+def test_risk_not_yet_promotable_edge(risk, now):
+    with freeze_time(now), _make_channel_map("tracky", risk, extra_risk="beta"):
+        proposals = create_proposal(args)
+    assert proposals == [], "Channel should not be promoted too soon"
+
+
+@pytest.mark.parametrize(
+    "risk, now",
+    [("beta", "2000-01-03"), ("candidate", "2000-01-05")],
+)
+def test_risk_not_yet_promotable(risk, now):
+    with freeze_time(now), _make_channel_map("tracky", risk):
+        proposals = create_proposal(args)
+    assert proposals == [], "Channel should not be promoted too soon"
 
 
 @pytest.mark.parametrize(
     "risk, now",
     [("candidate", "2000-01-06")],
 )
-def test_risk_promotable_without_stable(risk, now, release_revision):
-    with freeze_time(now):
-        check_and_promote(_make_channel_map("tracky", risk), dry_run=False)
-    (
-        release_revision.assert_not_called(),
-        "Candidate track should not be promoted if stable is missing",
-    )
+def test_risk_promotable_without_stable(risk, now):
+    with freeze_time(now), _make_channel_map("tracky", risk):
+        proposals = create_proposal(args)
+
+    assert (
+        proposals == []
+    ), "Candidate track should not be promoted if stable is missing"
 
 
 @pytest.mark.parametrize(
     "risk, now",
     [("edge", "2000-01-06")],
 )
-def test_latest_track(risk, now, release_revision):
-    with freeze_time(now):
-        check_and_promote(_make_channel_map("latest", risk), dry_run=False)
-    release_revision.assert_not_called(), "Latest track should not be promoted"
+def test_latest_track(risk, now):
+    with freeze_time(now), _make_channel_map("latest", risk):
+        proposals = create_proposal(args)
+    assert proposals == [], "Latest track should not be promoted"

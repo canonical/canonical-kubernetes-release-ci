@@ -68,7 +68,7 @@ def ensure_lp_recipe(
     )
     client = lp.client()
     lp_project = client.projects[util.SNAP_NAME]
-    lp_owner = client.people[util.LP_OWNER]
+    lp_owner = client.people[lp.OWNER]
     lp_repo = client.git_repositories.getDefaultRepository(target=lp_project)
     lp_ref = lp_repo.getRefByPath(path=flavor_branch)
     lp_archive = client.archives.getByReference(reference="ubuntu")

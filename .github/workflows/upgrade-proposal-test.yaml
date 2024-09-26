@@ -1,0 +1,116 @@
+name: Upgrade Proposal Test
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: 'The branch of the k8s-snap to use for testing the proposal'
+        required: true
+        type: string
+      dry_run:
+        description: 'If true, it will trigger the test, but not promote on success'
+        required: false
+        type: boolean
+      lxd-channel:
+        description: 'The LXD channel to use for testing the proposal'
+        default: '5.21/stable'
+        type: string
+      lxd-images:
+        description: 'The LXD images to use for testing the proposal'
+        required: true
+        type: string
+      proposal-name:
+        description: 'The name of the proposal to test'
+        required: true
+        type: string
+      revision:
+        description: 'The snap revision to promote'
+        required: true
+        type: string
+      runner-labels:
+        description: 'The github runner-label for this job'
+        required: true
+        type: string
+      snap-channel:
+        description: 'The channels to promote the snap to'
+        required: true
+        type: string
+      upgrade-channels:
+        description: 'The upgrade paths to test'
+        required: true
+        type: string
+    secrets:
+      SNAPSTORE_AUTH_TOKEN:
+        required: true
+jobs:
+  test-proposal: 
+    name: Integration Test ${{ inputs.proposal-name }} ${{ matrix.lxd-image}}
+    runs-on: ${{ fromJson(inputs.runner-labels) }}
+    strategy:
+      matrix:
+        # a unique runner for each lxd-image and upgrade-path
+        lxd-image: ${{ fromJSON(inputs.lxd-images) }}
+        upgrade-channel: ${{ fromJSON(inputs.upgrade-channels) }}
+    steps:
+      - uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install lxd and tox
+        run: |
+          sudo apt update
+          sudo apt install -y tox
+          sudo snap install lxd --channel ${{ inputs.lxd-channel }} || true
+          sudo snap refresh lxd --channel ${{ inputs.lxd-channel }}
+          sudo lxd init --auto
+          sudo usermod --append --groups lxd $USER
+          sg lxd -c 'lxc version'          
+      - name: Run promotion tests
+        env:
+          TEST_SUBSTRATE: lxd
+          TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
+          TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
+          TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channel, ' ') }}
+        run: |
+          tox -e promote -- \
+            ${{ inputs.dry_run && ' --dry-run' || '' }} \
+            test \
+            --branch="${{ inputs.branch }}"
+      - name: Prepare inspection reports
+        if: failure()
+        run: |
+          tar -czvf inspection-reports.tar.gz -C $HOME inspection-reports
+          tar -czvf inspection-reports.tar.gz -C ${{ github.workspace }} inspection-reports
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: promotion-test-$${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
+          path: ${{ github.workspace }}/inspection-reports.tar.gz
+  promote-proposal:
+    name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
+    runs-on: ${{ fromJson(inputs.runner-labels) }}
+    needs: test-proposal
+    steps:
+    - uses: step-security/harden-runner@v2
+      with:
+        egress-policy: audit
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+        cache: 'pip'
+    - run: pip install tox
+    - name: Promote
+      env:
+        SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
+      run: |
+          tox -e promote --                               \
+          ${{ inputs.DRY_RUN }} && ' --dry-run' || '' }}  \
+          promote                                         \
+          --snap-revision="${{ inputs.revision }}"        \
+          --snap-channel="${{ inputs.snap-channel }}"

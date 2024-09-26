@@ -2,15 +2,21 @@
 
 import argparse
 import datetime
+import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
 
+import util.gh as gh
+import util.lp as lp
+import util.repo as repo
 import util.snapstore as snapstore
 import util.util as util
+from actions_toolkit import core
 
-USAGE = "Promote revisions for Canonical Kubernetes tracks"
+USAGE = "./promote_tracks.py"
 
 DESCRIPTION = """
 Promote revisions of the Canonical Kubernetes snap through the risk levels of each track.
@@ -21,6 +27,8 @@ The script will only promote a revision to stable if there is already another re
 The first stable release for each track requires blessing from SolQA and is promoted manually.
 """
 
+SERIES = ["20.04", "22.04", "24.04"]
+
 IGNORE_TRACKS = ["latest"]
 
 # The snap risk levels, used to find the next risk level for a revision.
@@ -30,14 +38,37 @@ NEXT_RISK = RISK_LEVELS[1:] + [None]
 # Revisions stay at a certain risk level for some days before being promoted.
 DAYS_TO_STAY_IN_RISK = {"edge": 1, "beta": 3, "candidate": 5}
 
+if venv := os.environ.get("VIRTUAL_ENV"):
+    TOX_PATH = Path(venv) / "bin/tox"
 
-def release_revision(revision, channel):
+
+def release_revision(args):
     # Note: we cannot use `snapcraft promote` here because it does not allow to promote from edge to beta without manual confirmation.
-    subprocess.run(["/snap/bin/snapcraft", "release", "k8s", str(revision), channel])
+    revision, channel = args.snap_revision, args.snap_channel
+    LOG.info(
+        "Promote r%s to %s%s", revision, channel, args.dry_run and " (dry-run)" or ""
+    )
+    args.dry_run or subprocess.run(
+        ["/snap/bin/snapcraft", "release", util.SNAP_NAME, revision, channel]
+    )
 
 
-def check_and_promote(snap_info, dry_run: bool):
+def execute_proposal_test(args):
+    branches = {args.branch, "main"}  # branch choices
+    cmd = f"{TOX_PATH} -e integration -- -k test_version_upgrades"
+
+    for branch in branches:
+        with repo.clone(util.SNAP_REPO, branch) as dir:
+            if repo.ls_tree(dir, "tests/integration/tests/test_version_upgrades.py"):
+                LOG.info("Running integration tests for %s", branch)
+                subprocess.run(cmd.split(), cwd=dir / "tests/integration", check=True)
+                return
+
+
+def create_proposal(args):
+    snap_info = snapstore.info(util.SNAP_NAME)
     channels = {c["channel"]["name"]: c for c in snap_info["channel-map"]}
+    proposals = []
 
     def sorter(info):
         return (info["channel"]["track"], RISK_LEVELS.index(info["channel"]["risk"]))
@@ -50,6 +81,9 @@ def check_and_promote(snap_info, dry_run: bool):
         next_risk = NEXT_RISK[RISK_LEVELS.index(risk)]
         revision = channel_info["revision"]
         chan_log = logging.getLogger(f"{logger_name} {track:>15}/{risk:<9}")
+
+        start_channel = f"{track}/{risk}"
+        final_channel = f"{track}/{next_risk}"
 
         if not next_risk:
             chan_log.debug("Skipping promoting stable")
@@ -72,12 +106,17 @@ def check_and_promote(snap_info, dry_run: bool):
             created_at,
         )
 
-        if (
+        purgatory_complete = (
             created_at_date
             and (now - created_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
             and channels.get(f"{track}/{risk}", {}).get("revision")
             != channels.get(f"{track}/{next_risk}", {}).get("revision")
-        ):
+        )
+        new_patch_in_edge = risk == "edge" and channels.get(
+            f"{track}/{next_risk}", {}
+        ).get("version") != channels.get(f"{track}/{risk}", {}).get("version")
+
+        if purgatory_complete or new_patch_in_edge:
             if next_risk == "stable" and f"{track}/stable" not in channels.keys():
                 # The track has not yet a stable release.
                 # The first stable release requires blessing from SolQA and needs to be promoted manually.
@@ -90,23 +129,65 @@ def check_and_promote(snap_info, dry_run: bool):
                 )
             else:
                 chan_log.info(
-                    "Promotes rev=%-5s arch=%s to %s%s",
+                    "Promotes rev=%-5s arch=%s to %s",
                     revision,
                     arch,
                     next_risk,
-                    " (dry-run)" if dry_run else "",
                 )
-                (not dry_run) and release_revision(revision, f"{track}/{next_risk}")
+                proposal = {}
+                proposal["branch"] = lp.branch_from_track(util.SNAP_NAME, track)
+                proposal["upgrade-channels"] = [[final_channel, start_channel]]
+                proposal["revision"] = revision
+                proposal["snap-channel"] = final_channel
+                proposal["name"] = f"{util.SNAP_NAME}-{track}-{next_risk}-{arch}"
+                proposal["runner-labels"] = gh.arch_to_gh_labels(arch, self_hosted=True)
+                proposal["lxd-images"] = [f"ubuntu:{series}" for series in SERIES]
+                proposals.append(proposal)
+    if args.gh_action:
+        core.set_output("proposals", json.dumps(proposals))
+    return proposals
 
 
 def main():
     arg_parser = argparse.ArgumentParser(
         Path(__file__).name, usage=USAGE, description=DESCRIPTION
     )
-    args = util.setup_arguments(arg_parser)
+    subparsers = arg_parser.add_subparsers(required=True)
+    propose_args = subparsers.add_parser(
+        "propose", help="Propose revisions for promotion"
+    )
+    propose_args.add_argument(
+        "--gh-action",
+        action="store_true",
+        help="Output the proposals to be used in a GitHub Action",
+    )
+    propose_args.set_defaults(func=create_proposal)
 
-    snap_info = snapstore.info(util.SNAP_NAME)
-    check_and_promote(snap_info, args.dry_run)
+    test_args = subparsers.add_parser("test", help="Run the test for a proposal")
+    test_args.add_argument(
+        "--branch", required=True, help="The branch from which to test"
+    )
+    test_args.set_defaults(func=execute_proposal_test)
+
+    promote_args = subparsers.add_parser(
+        "promote", help="Promote the proposed revisions"
+    )
+    promote_args.add_argument(
+        "--snap-revision",
+        required=True,
+        help="The snap revision to promote",
+        dest="snap_revision",
+    )
+    promote_args.add_argument(
+        "--snap-channel",
+        required=True,
+        help="The snap channel to promote to",
+        dest="snap_channel",
+    )
+    promote_args.set_defaults(func=release_revision)
+
+    args = util.setup_arguments(arg_parser)
+    args.func(args)
 
 
 is_main = __name__ == "__main__"

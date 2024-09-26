@@ -42,7 +42,6 @@ jobs:
           cache: 'pip'
       - run: pip install -r scripts/requirements.txt
       - run: 'echo $LPCREDS_B64 | base64 --decode > lp_creds'
-        shell: bash
       - name: Rebuild Branches
         run: |
           LPCREDS=./lp_creds scripts/request_builds.py --branch ${{ inputs.branches }}${{ inputs.dry_run && ' --dry-run' || '' }}

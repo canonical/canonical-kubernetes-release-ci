@@ -9,7 +9,6 @@ import util.repo as repo
 LOG = logging.getLogger(__name__)
 SNAP_NAME: str = "k8s"
 SNAP_REPO: str = "https://github.com/canonical/k8s-snap.git/"
-LP_OWNER: str = "containers"
 TIP_BRANCH = re.compile(r"^(?:main)|^(?:release-\d+\.\d+)$")
 
 

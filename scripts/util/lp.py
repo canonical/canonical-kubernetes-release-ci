@@ -4,6 +4,8 @@ from functools import cache
 
 from launchpadlib.launchpad import Launchpad
 
+OWNER: str = "containers"
+
 
 @cache
 def client():
@@ -27,3 +29,18 @@ def client():
         )
     else:
         raise ValueError("No launchpad credentials found")
+
+
+def snap_by_owner(snap: str):
+    """Return the owner object for a given owner name."""
+    lp_client = client()
+    return lp_client.snaps.findByStoreName(
+        owner=lp_client.people[OWNER], store_name=snap
+    )
+
+
+def branch_from_track(snap, track):
+    """Return the branch name for a given track."""
+    for recipe in snap_by_owner(snap):
+        if any(chan.split("/")[0] == track for chan in recipe.store_channels):
+            return recipe.git_ref_link.split("+ref/")[1]
