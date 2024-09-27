@@ -38,8 +38,8 @@ NEXT_RISK = RISK_LEVELS[1:] + [None]
 # Revisions stay at a certain risk level for some days before being promoted.
 DAYS_TO_STAY_IN_RISK = {"edge": 1, "beta": 3, "candidate": 5}
 
-if venv := os.environ.get("VIRTUAL_ENV"):
-    TOX_PATH = Path(venv) / "bin/tox"
+# Path to the tox executable.
+TOX_PATH = (venv := os.getenv("VIRTUAL_ENV")) and Path(venv) / "bin/tox" or "tox"
 
 
 def release_revision(args):
@@ -95,20 +95,21 @@ def create_proposal(args):
 
         now = datetime.datetime.now(datetime.timezone.utc)
 
-        if created_at := channel_info["created-at"]:
-            created_at_date = datetime.datetime.fromisoformat(created_at)
+        if released_at := channel.get("released-at"):
+            released_at_date = datetime.datetime.fromisoformat(released_at)
         else:
-            created_at_date = None
+            released_at_date = None
+
         chan_log.debug(
-            "Evaluate rev=%-5s arch=%s created at %s",
+            "Evaluate rev=%-5s arch=%s released at %s",
             revision,
             arch,
-            created_at,
+            released_at_date,
         )
 
         purgatory_complete = (
-            created_at_date
-            and (now - created_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
+            released_at_date
+            and (now - released_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
             and channels.get(f"{track}/{risk}", {}).get("revision")
             != channels.get(f"{track}/{next_risk}", {}).get("revision")
         )

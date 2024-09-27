@@ -22,7 +22,7 @@ def _create_channel(track: str, risk: str, revision: int):
         "channel": {
             "architecture": "amd64",
             "name": f"{track}/{risk}",
-            "released-at": "2000-01-01T00:00:00.0+00:00",
+            "released-at": "2000-01-01T00:00:00.000000+00:00",
             "risk": risk,
             "track": track,
         },

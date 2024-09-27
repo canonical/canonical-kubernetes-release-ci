@@ -10,8 +10,8 @@ OWNER: str = "containers"
 @cache
 def client():
     """Use launchpad credentials to interact with launchpad."""
-    cred_file = os.environ.get("LPCREDS", None)
-    creds_local = os.environ.get("LPLOCAL", None)
+    cred_file = os.getenv("LPCREDS")
+    creds_local = os.getenv("LPLOCAL")
     if cred_file:
         parser = ConfigParser()
         parser.read(cred_file)
