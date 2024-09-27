@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 
 import argparse
+import dataclasses
 import datetime
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
+from collections import defaultdict
+from functools import cached_property
 from pathlib import Path
+from typing import Optional
 
 import util.gh as gh
 import util.lp as lp
@@ -41,6 +46,211 @@ DAYS_TO_STAY_IN_RISK = {"edge": 1, "beta": 3, "candidate": 5}
 # Path to the tox executable.
 TOX_PATH = (venv := os.getenv("VIRTUAL_ENV")) and Path(venv) / "bin/tox" or "tox"
 
+TRACK_RE = re.compile(r"^(\d+)\.(\d+)(\S*)$")
+
+
+class Hyphenized:
+    @classmethod
+    def bake(cls, *args, **kwargs):
+        return cls(*args, **{s.replace("-", "_").lower(): v for s, v in kwargs.items()})
+
+
+@dataclasses.dataclass
+class ChannelMetadata(Hyphenized):
+    name: Optional[str] = None
+    track: Optional[str] = None
+    risk: Optional[str] = None
+    architecture: Optional[str] = None
+    released_at: Optional[str] = None
+
+
+@dataclasses.dataclass
+class Channel(Hyphenized):
+    channel: ChannelMetadata
+    created_at: Optional[str] = None
+    revision: Optional[int] = None
+    version: Optional[str] = None
+    type: Optional[str] = None
+    download: Optional[dict] = dataclasses.field(default_factory=dict)
+
+    @cached_property
+    def next_risk(self):
+        return NEXT_RISK[RISK_LEVELS.index(self.risk)]
+
+    def __getattr__(self, name):
+        return getattr(self.channel, name)
+
+
+EMPTY_CHANNEL = Channel(channel=ChannelMetadata())
+
+
+def _build_upgrade_channels(
+    channel: Channel, channels: dict[str, Channel]
+) -> list[list[str]]:
+    """Build the upgrade channels for a proposal within this architecture
+
+    At most, there will be three validation tests:
+    - Upgrade from the next risk to this risk within the channel
+      (simulates a snap refresh)
+    - Upgrade from the highest risk in this track to this risk
+      (confirms this can replace the highest risk'd snap)
+    - Upgrade from the highest risk in prior track to this risk
+      (confirms this can replace the highest prior risk'd snap)
+
+    If the starting revision doesn't exist, the test is skipped.
+
+    Args:
+        channel:  The current snap revision to promote
+        channels: All channels of the snap with the same arch
+
+    Returns:
+        A valid list of upgrade proposal stages.
+    """
+
+    track = channel.track
+    next_risk = channel.next_risk
+
+    # The next risk on this track
+    next_channel = f"{track}/{next_risk}"
+    source_channels = set()
+    if next_channel in channels:
+        source_channels |= {next_channel}
+
+    # First highest risk on this track (excluding next-risk)
+    same_track_channels = [
+        f"{track}/{r}"
+        for idx, r in enumerate(RISK_LEVELS)
+        if idx > RISK_LEVELS.index(next_risk)
+    ]
+    for source in reversed(same_track_channels):
+        if source in channels:
+            source_channels |= {source}
+            break
+
+    # First highest risk on the previous track
+    if match := TRACK_RE.match(track):
+        maj, min, tail = match.groups()
+    else:
+        raise ValueError(f"Invalid track name: {track}")
+    prior_track = f"{maj}.{int(min)-1}{tail}"
+    prior_track_channels = [f"{prior_track}/{r}" for r in RISK_LEVELS]
+    for source in reversed(prior_track_channels):
+        if source in channels:
+            source_channels |= {source}
+            break
+
+    # Only run tests on revision changes
+    return [
+        [source, channel.name]
+        for source in sorted(source_channels)
+        if channel.revision != channels[source].revision
+    ]
+
+
+def _create_channel_map():
+    snap_info = snapstore.info(util.SNAP_NAME)
+    channel_map: dict[str, dict[str, Channel]] = defaultdict(dict)
+
+    for c in snap_info["channel-map"]:
+        channel_data = ChannelMetadata.bake(**c.pop("channel"))
+        revision_data = Channel.bake(channel=channel_data, **c)
+        channel_map[channel_data.architecture][channel_data.name] = revision_data
+
+    return channel_map
+
+
+def create_proposal(args):
+    channel_map = _create_channel_map()
+    proposals = []
+
+    for arch, channels in channel_map.items():
+        proposals.extend(_create_arch_proposals(arch, channels))
+
+    if args.gh_action:
+        core.set_output("proposals", json.dumps(proposals))
+    return proposals
+
+
+def _create_arch_proposals(arch, channels: dict[str, Channel]):
+    proposals = []
+
+    def sorter(info: Channel):
+        return (info.name, RISK_LEVELS.index(info.risk))
+
+    for channel_info in sorted(channels.values(), key=sorter, reverse=True):
+        track = channel_info.channel.track
+        risk = channel_info.risk
+        next_risk = channel_info.next_risk
+        revision = channel_info.revision
+        chan_log = logging.getLogger(f"{logger_name} {track:>15}/{risk:<9}")
+
+        final_channel = f"{track}/{next_risk}"
+
+        if not next_risk:
+            chan_log.debug("Skipping promoting stable")
+            continue
+
+        if track in IGNORE_TRACKS:
+            chan_log.debug("Skipping ignored track")
+            continue
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        if released_at := channel_info.channel.released_at:
+            released_at_date = datetime.datetime.fromisoformat(released_at)
+        else:
+            released_at_date = None
+
+        chan_log.debug(
+            "Evaluate rev=%-5s arch=%s released at %s",
+            revision,
+            arch,
+            released_at_date,
+        )
+
+        purgatory_complete = (
+            released_at_date
+            and (now - released_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
+            and channels.get(f"{track}/{risk}", EMPTY_CHANNEL).revision
+            != channels.get(f"{track}/{next_risk}", EMPTY_CHANNEL).revision
+        )
+        new_patch_in_edge = (
+            risk == "edge"
+            and channels.get(f"{track}/{next_risk}", EMPTY_CHANNEL).version
+            != channels.get(f"{track}/{risk}", EMPTY_CHANNEL).version
+        )
+
+        if purgatory_complete or new_patch_in_edge:
+            if next_risk == "stable" and f"{track}/stable" not in channels.keys():
+                # The track has not yet a stable release.
+                # The first stable release requires blessing from SolQA and needs to be promoted manually.
+                # Follow-up patches do not require this.
+                chan_log.warning(
+                    "Approval rev=%-5s arch=%s to %s needed by SolQA",
+                    revision,
+                    arch,
+                    next_risk,
+                )
+            else:
+                chan_log.info(
+                    "Promotes rev=%-5s arch=%s to %s",
+                    revision,
+                    arch,
+                    next_risk,
+                )
+                proposal = {}
+                proposal["branch"] = lp.branch_from_track(util.SNAP_NAME, track)
+                proposal["upgrade-channels"] = _build_upgrade_channels(
+                    channel_info, channels
+                )
+                proposal["revision"] = revision
+                proposal["snap-channel"] = final_channel
+                proposal["name"] = f"{util.SNAP_NAME}-{track}-{next_risk}-{arch}"
+                proposal["runner-labels"] = gh.arch_to_gh_labels(arch, self_hosted=True)
+                proposal["lxd-images"] = [f"ubuntu:{series}" for series in SERIES]
+                proposals.append(proposal)
+    return proposals
+
 
 def release_revision(args):
     # Note: we cannot use `snapcraft promote` here because it does not allow to promote from edge to beta without manual confirmation.
@@ -63,90 +273,6 @@ def execute_proposal_test(args):
                 LOG.info("Running integration tests for %s", branch)
                 subprocess.run(cmd.split(), cwd=dir / "tests/integration", check=True)
                 return
-
-
-def create_proposal(args):
-    snap_info = snapstore.info(util.SNAP_NAME)
-    channels = {c["channel"]["name"]: c for c in snap_info["channel-map"]}
-    proposals = []
-
-    def sorter(info):
-        return (info["channel"]["track"], RISK_LEVELS.index(info["channel"]["risk"]))
-
-    for channel_info in sorted(snap_info["channel-map"], key=sorter, reverse=True):
-        channel = channel_info["channel"]
-        track = channel["track"]
-        risk = channel["risk"]
-        arch = channel["architecture"]
-        next_risk = NEXT_RISK[RISK_LEVELS.index(risk)]
-        revision = channel_info["revision"]
-        chan_log = logging.getLogger(f"{logger_name} {track:>15}/{risk:<9}")
-
-        start_channel = f"{track}/{risk}"
-        final_channel = f"{track}/{next_risk}"
-
-        if not next_risk:
-            chan_log.debug("Skipping promoting stable")
-            continue
-
-        if track in IGNORE_TRACKS:
-            chan_log.debug("Skipping ignored track")
-            continue
-
-        now = datetime.datetime.now(datetime.timezone.utc)
-
-        if released_at := channel.get("released-at"):
-            released_at_date = datetime.datetime.fromisoformat(released_at)
-        else:
-            released_at_date = None
-
-        chan_log.debug(
-            "Evaluate rev=%-5s arch=%s released at %s",
-            revision,
-            arch,
-            released_at_date,
-        )
-
-        purgatory_complete = (
-            released_at_date
-            and (now - released_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
-            and channels.get(f"{track}/{risk}", {}).get("revision")
-            != channels.get(f"{track}/{next_risk}", {}).get("revision")
-        )
-        new_patch_in_edge = risk == "edge" and channels.get(
-            f"{track}/{next_risk}", {}
-        ).get("version") != channels.get(f"{track}/{risk}", {}).get("version")
-
-        if purgatory_complete or new_patch_in_edge:
-            if next_risk == "stable" and f"{track}/stable" not in channels.keys():
-                # The track has not yet a stable release.
-                # The first stable release requires blessing from SolQA and needs to be promoted manually.
-                # Follow-up patches do not require this.
-                chan_log.warning(
-                    "Approval rev=%-5s arch=%s to %s needed by SolQA",
-                    revision,
-                    arch,
-                    next_risk,
-                )
-            else:
-                chan_log.info(
-                    "Promotes rev=%-5s arch=%s to %s",
-                    revision,
-                    arch,
-                    next_risk,
-                )
-                proposal = {}
-                proposal["branch"] = lp.branch_from_track(util.SNAP_NAME, track)
-                proposal["upgrade-channels"] = [[final_channel, start_channel]]
-                proposal["revision"] = revision
-                proposal["snap-channel"] = final_channel
-                proposal["name"] = f"{util.SNAP_NAME}-{track}-{next_risk}-{arch}"
-                proposal["runner-labels"] = gh.arch_to_gh_labels(arch, self_hosted=True)
-                proposal["lxd-images"] = [f"ubuntu:{series}" for series in SERIES]
-                proposals.append(proposal)
-    if args.gh_action:
-        core.set_output("proposals", json.dumps(proposals))
-    return proposals
 
 
 def main():

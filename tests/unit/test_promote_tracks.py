@@ -7,6 +7,7 @@ from freezegun import freeze_time
 from promote_tracks import create_proposal
 
 MOCK_BRANCH = "branchy-mcbranchface"
+MOCK_TRACK = "1.31-tracky"
 args = argparse.Namespace(dry_run=False, loglevel="INFO", gh_action=False)
 
 
@@ -17,16 +18,18 @@ def branch_from_track():
         yield mocked
 
 
-def _create_channel(track: str, risk: str, revision: int):
+def _create_channel(
+    track: str, risk: str, revision: int, date="2000-01-01", arch="amd64"
+):
     return {
         "channel": {
-            "architecture": "amd64",
+            "architecture": arch,
             "name": f"{track}/{risk}",
-            "released-at": "2000-01-01T00:00:00.000000+00:00",
+            "released-at": f"{date}T00:00:00.000000+00:00",
             "risk": risk,
             "track": track,
         },
-        "created-at": "2000-01-01T00:00:00.000000+00:00",
+        "created-at": f"{date}T00:00:00.000000+00:00",
         "download": {},
         "revision": revision,
         "type": "app",
@@ -34,15 +37,15 @@ def _create_channel(track: str, risk: str, revision: int):
     }
 
 
-def _expected_proposals(next_risk, risk, revision):
+def _expected_proposals(track, next_risk, risk, revision):
     return [
         {
-            "name": f"k8s-tracky-{next_risk}-amd64",
+            "name": f"k8s-1.31-tracky-{next_risk}-amd64",
             "branch": MOCK_BRANCH,
             "lxd-images": ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:24.04"],
             "runner-labels": ["X64", "self-hosted"],
-            "upgrade-channels": [[f"tracky/{next_risk}", f"tracky/{risk}"]],
-            "snap-channel": f"tracky/{next_risk}",
+            "upgrade-channels": [[f"{track}/stable", f"{track}/{risk}"]],
+            "snap-channel": f"{track}/{next_risk}",
             "revision": revision,
         }
     ]
@@ -53,6 +56,9 @@ def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
     snap_info = {"channel-map": [_create_channel(track, risk, 2)]}
     if extra_risk:
         snap_info["channel-map"].append(_create_channel(track, extra_risk, 1))
+    snap_info["channel-map"].append(
+        _create_channel(track, "stable", 3, arch="arm64", date="2001-01-01")
+    )
     with mock.patch("promote_tracks.snapstore.info") as mocked:
         mocked.return_value = snap_info
         yield snap_info
@@ -67,9 +73,9 @@ def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
     ],
 )
 def test_risk_promotable(risk, next_risk, now):
-    with freeze_time(now), _make_channel_map("tracky", risk, extra_risk="stable"):
+    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk, extra_risk="stable"):
         proposals = create_proposal(args)
-    assert proposals == _expected_proposals(next_risk, risk, 2)
+    assert proposals == _expected_proposals(MOCK_TRACK, next_risk, risk, 2)
 
 
 @pytest.mark.parametrize(
@@ -77,7 +83,7 @@ def test_risk_promotable(risk, next_risk, now):
     [("edge", "2000-01-01")],
 )
 def test_risk_not_yet_promotable_edge(risk, now):
-    with freeze_time(now), _make_channel_map("tracky", risk, extra_risk="beta"):
+    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk, extra_risk="beta"):
         proposals = create_proposal(args)
     assert proposals == [], "Channel should not be promoted too soon"
 
@@ -87,7 +93,7 @@ def test_risk_not_yet_promotable_edge(risk, now):
     [("beta", "2000-01-03"), ("candidate", "2000-01-05")],
 )
 def test_risk_not_yet_promotable(risk, now):
-    with freeze_time(now), _make_channel_map("tracky", risk):
+    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk):
         proposals = create_proposal(args)
     assert proposals == [], "Channel should not be promoted too soon"
 
@@ -97,7 +103,7 @@ def test_risk_not_yet_promotable(risk, now):
     [("candidate", "2000-01-06")],
 )
 def test_risk_promotable_without_stable(risk, now):
-    with freeze_time(now), _make_channel_map("tracky", risk):
+    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk):
         proposals = create_proposal(args)
 
     assert (
