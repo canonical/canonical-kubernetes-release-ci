@@ -175,6 +175,8 @@ def create_proposal(args):
 
 def _create_arch_proposals(arch, channels: dict[str, Channel], args):
     proposals = []
+    ignored_tracks = IGNORE_TRACKS + getattr(args, "ignore_tracks", [])
+    ignored_arches = getattr(args, "ignore_arches", [])
     days_to_stay_in_risk = {
         "edge": args.days_in_edge_risk,
         "beta": args.days_in_beta_risk,
@@ -197,8 +199,12 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             chan_log.debug("Skipping promoting stable")
             continue
 
-        if track in IGNORE_TRACKS:
+        if track in ignored_tracks:
             chan_log.debug("Skipping ignored track")
+            continue
+
+        if arch in ignored_arches:
+            chan_log.debug("Skipping ignored architecture")
             continue
 
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -312,6 +318,18 @@ def main():
         type=int,
         help="The number of days a revision stays in candidate risk",
         default=DAYS_TO_STAY_IN_CANDIDATE,
+    )
+    propose_args.add_argument(
+        "--ignore-tracks",
+        nargs="+",
+        help="Tracks to ignore when proposing revisions",
+        default=[],
+    )
+    propose_args.add_argument(
+        "--ignore-arches",
+        nargs="+",
+        help="Architectures to ignore when proposing revisions",
+        default=[],
     )
     propose_args.set_defaults(func=create_proposal)
 
