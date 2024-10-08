@@ -109,8 +109,8 @@ jobs:
       env:
         SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
       run: |
-          tox -e promote --                               \
-          ${{ inputs.DRY_RUN }} && ' --dry-run' || '' }}  \
-          promote                                         \
-          --snap-revision="${{ inputs.revision }}"        \
+          tox -e promote -- \
+          ${{ inputs.dry_run && ' --dry-run' || '' }} \
+          promote \
+          --snap-revision="${{ inputs.revision }}" \
           --snap-channel="${{ inputs.snap-channel }}"

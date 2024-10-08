@@ -2,13 +2,20 @@ import argparse
 import contextlib
 import unittest.mock as mock
 
+import promote_tracks
 import pytest
 from freezegun import freeze_time
-from promote_tracks import create_proposal
 
 MOCK_BRANCH = "branchy-mcbranchface"
 MOCK_TRACK = "1.31-tracky"
-args = argparse.Namespace(dry_run=False, loglevel="INFO", gh_action=False)
+args = argparse.Namespace(
+    dry_run=False,
+    loglevel="INFO",
+    gh_action=False,
+    days_in_edge_risk=promote_tracks.DAYS_TO_STAY_IN_EDGE,
+    days_in_beta_risk=promote_tracks.DAYS_TO_STAY_IN_BETA,
+    days_in_candidate_risk=promote_tracks.DAYS_TO_STAY_IN_CANDIDATE,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -74,7 +81,7 @@ def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
 )
 def test_risk_promotable(risk, next_risk, now):
     with freeze_time(now), _make_channel_map(MOCK_TRACK, risk, extra_risk="stable"):
-        proposals = create_proposal(args)
+        proposals = promote_tracks.create_proposal(args)
     assert proposals == _expected_proposals(MOCK_TRACK, next_risk, risk, 2)
 
 
@@ -84,7 +91,7 @@ def test_risk_promotable(risk, next_risk, now):
 )
 def test_risk_not_yet_promotable_edge(risk, now):
     with freeze_time(now), _make_channel_map(MOCK_TRACK, risk, extra_risk="beta"):
-        proposals = create_proposal(args)
+        proposals = promote_tracks.create_proposal(args)
     assert proposals == [], "Channel should not be promoted too soon"
 
 
@@ -94,7 +101,7 @@ def test_risk_not_yet_promotable_edge(risk, now):
 )
 def test_risk_not_yet_promotable(risk, now):
     with freeze_time(now), _make_channel_map(MOCK_TRACK, risk):
-        proposals = create_proposal(args)
+        proposals = promote_tracks.create_proposal(args)
     assert proposals == [], "Channel should not be promoted too soon"
 
 
@@ -104,7 +111,7 @@ def test_risk_not_yet_promotable(risk, now):
 )
 def test_risk_promotable_without_stable(risk, now):
     with freeze_time(now), _make_channel_map(MOCK_TRACK, risk):
-        proposals = create_proposal(args)
+        proposals = promote_tracks.create_proposal(args)
 
     assert (
         proposals == []
@@ -117,5 +124,5 @@ def test_risk_promotable_without_stable(risk, now):
 )
 def test_latest_track(risk, now):
     with freeze_time(now), _make_channel_map("latest", risk):
-        proposals = create_proposal(args)
+        proposals = promote_tracks.create_proposal(args)
     assert proposals == [], "Latest track should not be promoted"

@@ -41,7 +41,9 @@ RISK_LEVELS = ["edge", "beta", "candidate", "stable"]
 NEXT_RISK = RISK_LEVELS[1:] + [None]
 
 # Revisions stay at a certain risk level for some days before being promoted.
-DAYS_TO_STAY_IN_RISK = {"edge": 1, "beta": 3, "candidate": 5}
+DAYS_TO_STAY_IN_EDGE = 1
+DAYS_TO_STAY_IN_BETA = 3
+DAYS_TO_STAY_IN_CANDIDATE = 5
 
 # Path to the tox executable.
 TOX_PATH = (venv := os.getenv("VIRTUAL_ENV")) and Path(venv) / "bin/tox" or "tox"
@@ -164,15 +166,20 @@ def create_proposal(args):
     proposals = []
 
     for arch, channels in channel_map.items():
-        proposals.extend(_create_arch_proposals(arch, channels))
+        proposals.extend(_create_arch_proposals(arch, channels, args))
 
     if args.gh_action:
         core.set_output("proposals", json.dumps(proposals))
     return proposals
 
 
-def _create_arch_proposals(arch, channels: dict[str, Channel]):
+def _create_arch_proposals(arch, channels: dict[str, Channel], args):
     proposals = []
+    days_to_stay_in_risk = {
+        "edge": args.days_in_edge_risk,
+        "beta": args.days_in_beta_risk,
+        "candidate": args.days_in_candidate_risk,
+    }
 
     def sorter(info: Channel):
         return (info.name, RISK_LEVELS.index(info.risk))
@@ -210,7 +217,7 @@ def _create_arch_proposals(arch, channels: dict[str, Channel]):
 
         purgatory_complete = (
             released_at_date
-            and (now - released_at_date).days >= DAYS_TO_STAY_IN_RISK[risk]
+            and (now - released_at_date).days >= days_to_stay_in_risk[risk]
             and channels.get(f"{track}/{risk}", EMPTY_CHANNEL).revision
             != channels.get(f"{track}/{next_risk}", EMPTY_CHANNEL).revision
         )
@@ -287,6 +294,24 @@ def main():
         "--gh-action",
         action="store_true",
         help="Output the proposals to be used in a GitHub Action",
+    )
+    propose_args.add_argument(
+        "--days-in-edge-risk",
+        type=int,
+        help="The number of days a revision stays in edge risk",
+        default=DAYS_TO_STAY_IN_EDGE,
+    )
+    propose_args.add_argument(
+        "--days-in-beta-risk",
+        type=int,
+        help="The number of days a revision stays in beta risk",
+        default=DAYS_TO_STAY_IN_BETA,
+    )
+    propose_args.add_argument(
+        "--days-in-candidate-risk",
+        type=int,
+        help="The number of days a revision stays in candidate risk",
+        default=DAYS_TO_STAY_IN_CANDIDATE,
     )
     propose_args.set_defaults(func=create_proposal)
 

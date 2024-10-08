@@ -9,6 +9,24 @@ on:
         default: false
         description: |-
           If true, it will not trigger the builds, just print which would be built
+      days_in_edge_risk:
+        type: number
+        required: false
+        default: 1
+        description: |-
+          The number of days in edge risk to consider for promotion
+      days_in_beta_risk:
+        type: number
+        required: false
+        default: 3
+        description: |-
+          The number of days in beta risk to consider for promotion
+      days_in_candidate_risk:
+        type: number
+        required: false
+        default: 5
+        description: |-
+          The number of days in candidate risk to consider for promotion
   pull_request:
     
   schedule:
@@ -24,6 +42,7 @@ jobs:
       proposals: ${{ steps.propose-promotions.outputs.proposals }}
     env:
       LPCREDS_B64: ${{ secrets.LP_CREDS }}
+      ARGS: ''
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@v2
@@ -36,10 +55,18 @@ jobs:
           cache: 'pip'
       - run: pip install tox
       - run: 'echo $LPCREDS_B64 | base64 --decode > lp_creds'
+      - name: Assemble Dispatch Arguments
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          ARGS="${{ github.event.inputs.dry_run && '--dry-run' || '' }}"
+          ARGS="$ARGS --days-in-edge-risk=${{ github.event.inputs.days_in_edge_risk }}"
+          ARGS="$ARGS --days-in-beta-risk=${{ github.event.inputs.days_in_beta_risk }}"
+          ARGS="$ARGS --days-in-candidate-risk=${{ github.event.inputs.days_in_candidate_risk }}"
+          echo "ARGS=$ARGS" >> $GITHUB_ENV
       - name: Propose Promotions
         id: propose-promotions
         run: |
-          LPCREDS=./lp_creds tox -e promote -- propose --gh-action
+          LPCREDS=./lp_creds tox -e promote -- propose --gh-action ${{ env.ARGS }}
   test-proposal:
     needs: promotion-proposal
     strategy:
