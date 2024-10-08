@@ -43,7 +43,7 @@ on:
       SNAPSTORE_AUTH_TOKEN:
         required: true
 jobs:
-  test-proposal: 
+  test-proposal:
     name: Integration Test ${{ inputs.proposal-name }} ${{ matrix.lxd-image}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     strategy:
@@ -51,6 +51,8 @@ jobs:
         # a unique runner for each lxd-image and upgrade-path
         lxd-image: ${{ fromJSON(inputs.lxd-images) }}
         upgrade-channel: ${{ fromJSON(inputs.upgrade-channels) }}
+    env:
+      ARTIFACT_NAME: promotion-test-$${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
     steps:
       - uses: step-security/harden-runner@v2
         with:
@@ -68,7 +70,7 @@ jobs:
           sudo snap refresh lxd --channel ${{ inputs.lxd-channel }}
           sudo lxd init --auto
           sudo usermod --append --groups lxd $USER
-          sg lxd -c 'lxc version'          
+          sg lxd -c 'lxc version'
       - name: Run promotion tests
         env:
           TEST_SUBSTRATE: lxd
@@ -85,11 +87,12 @@ jobs:
         run: |
           tar -czvf inspection-reports.tar.gz -C $HOME inspection-reports
           tar -czvf inspection-reports.tar.gz -C ${{ github.workspace }} inspection-reports
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" | sed 's/:/-/g' >> $GITHUB_ENV
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: promotion-test-$${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
+          name: ${{ env.ARTIFACT_NAME }}
           path: ${{ github.workspace }}/inspection-reports.tar.gz
   promote-proposal:
     name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
