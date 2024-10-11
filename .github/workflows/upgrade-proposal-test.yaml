@@ -108,6 +108,7 @@ jobs:
         python-version: '3.12'
         cache: 'pip'
     - run: pip install tox
+    - run: sudo snap install snapcraft --classic
     - name: Promote
       env:
         SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
