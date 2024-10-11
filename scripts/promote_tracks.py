@@ -321,13 +321,13 @@ def main():
     )
     propose_args.add_argument(
         "--ignore-tracks",
-        nargs="+",
+        nargs="*",
         help="Tracks to ignore when proposing revisions",
         default=[],
     )
     propose_args.add_argument(
         "--ignore-arches",
-        nargs="+",
+        nargs="*",
         help="Architectures to ignore when proposing revisions",
         default=[],
     )
