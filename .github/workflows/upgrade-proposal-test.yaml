@@ -44,7 +44,7 @@ on:
         required: true
 jobs:
   test-proposal:
-    name: Integration Test ${{ inputs.proposal-name }} ${{ matrix.lxd-image}}
+    name: Test ${{ inputs.proposal-name }} on ${{ matrix.lxd-image}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     strategy:
       fail-fast: false
@@ -79,7 +79,7 @@ jobs:
           sudo usermod --append --groups lxd $USER
           sg lxd -c 'lxc version'
           echo "ARCHITECTURE=$(dpkg --print-architecture)" >> $GITHUB_ENV
-      - name: Run promotion tests from ${{ join(matrix.upgrade-channel, ' to ') }} on ${{ env.ARCHITECTURE }}
+      - name: Run promotion tests from ${{ join(matrix.upgrade-channel, ' to ') }} on ${{matrix.lxd-image}}@${{ env.ARCHITECTURE }}
         env:
           TEST_SUBSTRATE: lxd
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
