@@ -61,9 +61,6 @@ jobs:
           ARTIFACT_NAME=${ARTIFACT_NAME/:/-}    # replace : with -
           ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
           echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
-      - uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -71,8 +68,7 @@ jobs:
           cache: 'pip'
       - name: Install lxd and tox
         run: |
-          sudo apt update
-          sudo apt install -y tox
+          pip install tox
           sudo snap install lxd --channel ${{ inputs.lxd-channel }} || true
           sudo snap refresh lxd --channel ${{ inputs.lxd-channel }}
           sudo lxd init --auto
