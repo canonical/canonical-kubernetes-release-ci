@@ -52,8 +52,12 @@ jobs:
         lxd-image: ${{ fromJSON(inputs.lxd-images) }}
         upgrade-channel: ${{ fromJSON(inputs.upgrade-channels) }}
     env:
-      ARTIFACT_NAME: promotion-test-$${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
+      ARTIFACT_NAME: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}
     steps:
+      - name: Update ARTIFACT_NAME
+        run: |
+          ARTIFACT_NAME=$ARTIFACT_NAME-$(echo ${{ matrix.lxd-image }} | sed 's/:/-/g')
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
       - uses: step-security/harden-runner@v2
         with:
           egress-policy: audit
@@ -87,7 +91,6 @@ jobs:
         run: |
           tar -czvf inspection-reports.tar.gz -C $HOME inspection-reports
           tar -czvf inspection-reports.tar.gz -C ${{ github.workspace }} inspection-reports
-          echo "ARTIFACT_NAME=$ARTIFACT_NAME" | sed 's/:/-/g' >> $GITHUB_ENV
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: failure()
