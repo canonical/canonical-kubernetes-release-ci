@@ -141,6 +141,10 @@ def _build_upgrade_channels(
             source_channels |= {source}
             break
 
+    if not source_channels:
+        LOG.info("Without anything to upgrade from, just bootstrap on %s", channel.name)
+        return [[channel.name]]
+
     # Only run tests on revision changes
     return [
         [source, channel.name]
