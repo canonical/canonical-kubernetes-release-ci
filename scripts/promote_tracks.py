@@ -141,6 +141,10 @@ def _build_upgrade_channels(
             source_channels |= {source}
             break
 
+    if not source_channels:
+        LOG.info("Without anything to upgrade from, just bootstrap on %s", channel.name)
+        return [[channel.name]]
+
     # Only run tests on revision changes
     return [
         [source, channel.name]
@@ -252,13 +256,16 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
                     next_risk,
                 )
                 proposal = {}
+                proposal["arch"] = arch
                 proposal["branch"] = lp.branch_from_track(util.SNAP_NAME, track)
                 proposal["upgrade-channels"] = _build_upgrade_channels(
                     channel_info, channels
                 )
                 proposal["revision"] = revision
+                proposal["track"] = track
+                proposal["next-risk"] = next_risk
                 proposal["snap-channel"] = final_channel
-                proposal["name"] = f"{util.SNAP_NAME}-{track}-{next_risk}-{arch}"
+                proposal["name"] = f"{util.SNAP_NAME}-{track}/{next_risk}-{arch}"
                 proposal["runner-labels"] = gh.arch_to_gh_labels(arch, self_hosted=True)
                 proposal["lxd-images"] = [f"ubuntu:{series}" for series in SERIES]
                 proposals.append(proposal)
@@ -321,13 +328,13 @@ def main():
     )
     propose_args.add_argument(
         "--ignore-tracks",
-        nargs="+",
+        nargs="*",
         help="Tracks to ignore when proposing revisions",
         default=[],
     )
     propose_args.add_argument(
         "--ignore-arches",
-        nargs="+",
+        nargs="*",
         help="Architectures to ignore when proposing revisions",
         default=[],
     )

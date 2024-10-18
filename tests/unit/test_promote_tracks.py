@@ -47,13 +47,16 @@ def _create_channel(
 def _expected_proposals(track, next_risk, risk, revision):
     return [
         {
-            "name": f"k8s-1.31-tracky-{next_risk}-amd64",
+            "arch": "amd64",
             "branch": MOCK_BRANCH,
             "lxd-images": ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:24.04"],
-            "runner-labels": ["X64", "self-hosted"],
-            "upgrade-channels": [[f"{track}/stable", f"{track}/{risk}"]],
-            "snap-channel": f"{track}/{next_risk}",
+            "name": f"k8s-1.31-tracky/{next_risk}-amd64",
+            "next-risk": next_risk,
             "revision": revision,
+            "runner-labels": ["X64", "self-hosted"],
+            "snap-channel": f"{track}/{next_risk}",
+            "track": track,
+            "upgrade-channels": [[f"{track}/stable", f"{track}/{risk}"]],
         }
     ]
 

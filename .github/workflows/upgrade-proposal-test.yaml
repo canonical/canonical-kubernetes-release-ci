@@ -44,19 +44,24 @@ on:
         required: true
 jobs:
   test-proposal:
-    name: Integration Test ${{ inputs.proposal-name }} ${{ matrix.lxd-image}}
+    name: ${{ join(matrix.upgrade-channel, ' to ')}} on ${{ matrix.lxd-image}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     strategy:
+      fail-fast: false
       matrix:
         # a unique runner for each lxd-image and upgrade-path
         lxd-image: ${{ fromJSON(inputs.lxd-images) }}
         upgrade-channel: ${{ fromJSON(inputs.upgrade-channels) }}
     env:
-      ARTIFACT_NAME: promotion-test-$${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
+      ARCHITECTURE: ''
+      ARTIFACT_NAME: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
     steps:
-      - uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
+      - name: Update ARTIFACT_NAME
+        run: |
+          ARTIFACT_NAME=${ARTIFACT_NAME/:/-}    # replace : with -
+          ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
+          echo "ARCHITECTURE=$(dpkg --print-architecture)" >> $GITHUB_ENV
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -64,19 +69,20 @@ jobs:
           cache: 'pip'
       - name: Install lxd and tox
         run: |
-          sudo apt update
-          sudo apt install -y tox
+          pip install tox
           sudo snap install lxd --channel ${{ inputs.lxd-channel }} || true
           sudo snap refresh lxd --channel ${{ inputs.lxd-channel }}
           sudo lxd init --auto
           sudo usermod --append --groups lxd $USER
           sg lxd -c 'lxc version'
-      - name: Run promotion tests
+      - name: Run promotion tests from ${{ join(matrix.upgrade-channel, ' to ') }} on ${{matrix.lxd-image}}@${{ env.ARCHITECTURE }}
         env:
           TEST_SUBSTRATE: lxd
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
           TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
           TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channel, ' ') }}
+          TEST_DEFAULT_WAIT_RETRIES: 30
+          TEST_DEFAULT_WAIT_DELAY_S: 10
         run: |
           tox -e promote -- \
             ${{ inputs.dry_run && ' --dry-run' || '' }} \
@@ -85,15 +91,17 @@ jobs:
       - name: Prepare inspection reports
         if: failure()
         run: |
-          tar -czvf inspection-reports.tar.gz -C $HOME inspection-reports
-          tar -czvf inspection-reports.tar.gz -C ${{ github.workspace }} inspection-reports
-          echo "ARTIFACT_NAME=$ARTIFACT_NAME" | sed 's/:/-/g' >> $GITHUB_ENV
+          tar -czvf ${{ github.workspace }}/inspection-reports.tar.gz -C ${{ github.workspace }} inspection-reports
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: ${{ env.ARTIFACT_NAME }}
           path: ${{ github.workspace }}/inspection-reports.tar.gz
+      - name: Debugging session
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        uses: canonical/action-tmate@main
+        timeout-minutes: 10
   promote-proposal:
     name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
