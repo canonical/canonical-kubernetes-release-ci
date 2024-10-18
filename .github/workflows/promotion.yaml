@@ -83,7 +83,7 @@ jobs:
           LPCREDS=./lp_creds tox -e promote -- propose --gh-action ${{ env.ARGS }}
   test-proposal:
     needs: promotion-proposal
-    name: Test ${{ matrix.revision }}
+    name: ${{ matrix.arch }} r${{ matrix.revision }} for ${{matrix.snap-channel}}
     strategy:
       fail-fast: false   # Don't fail the entire matrix if one proposal fails
       matrix:

@@ -44,7 +44,7 @@ on:
         required: true
 jobs:
   test-proposal:
-    name: Test ${{ inputs.proposal-name }} on ${{ matrix.lxd-image}}
+    name: ${{ matrix.lxd-image}} from ${{ join(matrix.upgrade-channel, ', to ')}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     strategy:
       fail-fast: false
