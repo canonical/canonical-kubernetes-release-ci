@@ -34,7 +34,7 @@ on:
         description: |-
           A space separated list of architectures to ignore when proposing promotions
   pull_request:
-    
+
   schedule:
     - cron: '0 0 * * *'  # Runs every midnight
 
@@ -70,6 +70,12 @@ jobs:
           ARGS="$ARGS --ignore-tracks ${{ inputs.ignore_tracks }}"
           ARGS="$ARGS --ignore-arches ${{ inputs.ignore_architectures }}"
           echo "ARGS=$ARGS" >> $GITHUB_ENV
+      - name: Assemble auto-promotion Arguments
+        if: ${{ github.event_name != 'workflow_dispatch' }}
+        run: |
+            # Ignore the 1.30 track for auto-promotion. We don't support it.
+            ARGS="$ARGS --ignore-tracks 1.30-moonray 1.30-classic"
+            echo "ARGS=$ARGS" >> $GITHUB_ENV
       - name: Propose Promotions
         id: propose-promotions
         run: |
