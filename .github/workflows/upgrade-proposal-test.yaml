@@ -4,69 +4,122 @@ on:
   workflow_call:
     inputs:
       branch:
-        description: 'The branch of the k8s-snap to use for testing the proposal'
+        description: "The branch of the k8s-snap to use for testing the proposal"
         required: true
         type: string
       dry_run:
-        description: 'If true, it will trigger the test, but not promote on success'
+        description: "If true, it will trigger the test, but not promote on success"
         required: false
         type: boolean
       lxd-channel:
-        description: 'The LXD channel to use for testing the proposal'
-        default: '5.21/stable'
+        description: "The LXD channel to use for testing the proposal"
+        default: "5.21/stable"
         type: string
       lxd-images:
-        description: 'The LXD images to use for testing the proposal'
+        description: "The LXD images to use for testing the proposal"
         required: true
         type: string
       proposal-name:
-        description: 'The name of the proposal to test'
+        description: "The name of the proposal to test"
         required: true
         type: string
       revision:
-        description: 'The snap revision to promote'
+        description: "The snap revision to promote"
         required: true
         type: string
       runner-labels:
-        description: 'The github runner-label for this job'
+        description: "The github runner-label for this job"
         required: true
         type: string
       snap-channel:
-        description: 'The channels to promote the snap to'
+        description: "The channels to promote the snap to"
         required: true
         type: string
       upgrade-channels:
-        description: 'The upgrade paths to test'
+        description: "The upgrade paths to test"
         required: true
         type: string
     secrets:
       SNAPSTORE_AUTH_TOKEN:
         required: true
 jobs:
-  test-proposal:
-    name: ${{ join(matrix.upgrade-channel, ' to ')}} on ${{ matrix.lxd-image}}
+  #  test-proposal-upgrades:
+  #    name: ${{ join(matrix.upgrade-channel, ' to ')}} on ${{ matrix.lxd-image}}
+  #    runs-on: ${{ fromJson(inputs.runner-labels) }}
+  #    strategy:
+  #      fail-fast: false
+  #      matrix:
+  #        # a unique runner for each lxd-image and upgrade-path
+  #        lxd-image: ${{ fromJSON(inputs.lxd-images) }}
+  #        upgrade-channel: ${{ fromJSON(inputs.upgrade-channels) }}
+  #    env:
+  #      ARCHITECTURE: ''
+  #      ARTIFACT_NAME: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
+  #    steps:
+  #      - name: Update ARTIFACT_NAME
+  #        run: |
+  #          ARTIFACT_NAME=${ARTIFACT_NAME/:/-}    # replace : with -
+  #          ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
+  #          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
+  #          echo "ARCHITECTURE=$(dpkg --print-architecture)" >> $GITHUB_ENV
+  #      - uses: actions/checkout@v4
+  #      - uses: actions/setup-python@v5
+  #        with:
+  #          python-version: '3.12'
+  #          cache: 'pip'
+  #      - name: Install lxd and tox
+  #        run: |
+  #          pip install tox
+  #          sudo snap install lxd --channel ${{ inputs.lxd-channel }} || true
+  #          sudo snap refresh lxd --channel ${{ inputs.lxd-channel }}
+  #          sudo lxd init --auto
+  #          sudo usermod --append --groups lxd $USER
+  #          sg lxd -c 'lxc version'
+  #      - name: Run promotion tests from ${{ join(matrix.upgrade-channel, ' to ') }} on ${{matrix.lxd-image}}@${{ env.ARCHITECTURE }}
+  #        env:
+  #          TEST_SUBSTRATE: lxd
+  #          TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
+  #          TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
+  #          TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channel, ' ') }}
+  #          # Upgrading from 1.30 is not supported.
+  #          TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
+  #          TEST_DEFAULT_WAIT_RETRIES: 30
+  #          TEST_DEFAULT_WAIT_DELAY_S: 10
+  #          TEST_MIRROR_LIST: '[{"name": "ghcr.io", "port": 5000, "remote": "https://ghcr.io", "username": "${{ github.actor }}", "password": "${{ secrets.GITHUB_TOKEN }}"}, {"name": "docker.io", "port": 5001, "remote": "https://registry-1.docker.io", "username": "", "password": ""}, {"name": "rocks.canonical.com", "port": 5002, "remote": "https://rocks.canonical.com/cdk"}]'
+  #        run: |
+  #          tox -e promote -- \
+  #            ${{ inputs.dry_run && ' --dry-run' || '' }} \
+  #            test \
+  #            --branch="${{ inputs.branch }}"
+  #            --upgrade
+  #      - name: Prepare inspection reports
+  #        if: failure()
+  #        run: |
+  #          tar -czvf ${{ github.workspace }}/inspection-reports.tar.gz -C ${{ github.workspace }} inspection-reports
+  #      - name: Upload test results
+  #        uses: actions/upload-artifact@v4
+  #        if: failure()
+  #        with:
+  #          name: ${{ env.ARTIFACT_NAME }}
+  #          path: ${{ github.workspace }}/inspection-reports.tar.gz
+  #      - name: Debugging session
+  #        if: ${{ failure() && github.event_name == 'pull_request' }}
+  #        uses: canonical/action-tmate@main
+  #        timeout-minutes: 10
+  test-proposal-e2e:
+    # needs: test-proposal-upgrades
+    name: ${{ inputs.snap-channel }} on ${{ matrix.lxd-image}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        # a unique runner for each lxd-image and upgrade-path
         lxd-image: ${{ fromJSON(inputs.lxd-images) }}
-        upgrade-channel: ${{ fromJSON(inputs.upgrade-channels) }}
-    env:
-      ARCHITECTURE: ''
-      ARTIFACT_NAME: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
     steps:
-      - name: Update ARTIFACT_NAME
-        run: |
-          ARTIFACT_NAME=${ARTIFACT_NAME/:/-}    # replace : with -
-          ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
-          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
-          echo "ARCHITECTURE=$(dpkg --print-architecture)" >> $GITHUB_ENV
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'pip'
+          python-version: "3.12"
+          cache: "pip"
       - name: Install lxd and tox
         run: |
           pip install tox
@@ -75,16 +128,15 @@ jobs:
           sudo lxd init --auto
           sudo usermod --append --groups lxd $USER
           sg lxd -c 'lxc version'
-      - name: Run promotion tests from ${{ join(matrix.upgrade-channel, ' to ') }} on ${{matrix.lxd-image}}@${{ env.ARCHITECTURE }}
+      - name: Run e2e tests for revision ${{ inputs.revision }} on ${{ matrix.lxd-image}}
         env:
+          TEST_SNAP: "${{ inputs.revision }}"
           TEST_SUBSTRATE: lxd
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
           TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
-          TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channel, ' ') }}
-          # Upgrading from 1.30 is not supported.
-          TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
           TEST_DEFAULT_WAIT_RETRIES: 30
           TEST_DEFAULT_WAIT_DELAY_S: 10
+          TEST_MIRROR_LIST: '[{"name": "ghcr.io", "port": 5000, "remote": "https://ghcr.io", "username": "${{ github.actor }}", "password": "${{ secrets.GITHUB_TOKEN }}"}, {"name": "docker.io", "port": 5001, "remote": "https://registry-1.docker.io", "username": "", "password": ""}, {"name": "rocks.canonical.com", "port": 5002, "remote": "https://rocks.canonical.com/cdk"}]'
         run: |
           tox -e promote -- \
             ${{ inputs.dry_run && ' --dry-run' || '' }} \
@@ -107,22 +159,19 @@ jobs:
   promote-proposal:
     name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
-    needs: test-proposal
+    needs: test-proposal-e2e
     steps:
-    - uses: step-security/harden-runner@v2
-      with:
-        egress-policy: audit
-    - uses: actions/checkout@v4
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
-        cache: 'pip'
-    - run: pip install tox
-    - run: sudo snap install snapcraft --classic
-    - name: Promote
-      env:
-        SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
-      run: |
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install tox
+      - run: sudo snap install snapcraft --classic
+      - name: Promote
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
+        run: |
           tox -e promote -- \
           ${{ inputs.dry_run && ' --dry-run' || '' }} \
           promote \

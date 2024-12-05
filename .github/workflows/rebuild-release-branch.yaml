@@ -6,7 +6,7 @@ on:
       branches:
         type: string
         required: false
-        default: ""  # defaults to all branches 
+        default: ""  # defaults to all branches
         description: |-
           Run on which k8s-snap branches.
           list all branches necessary by spaces.
@@ -29,10 +29,6 @@ jobs:
     env:
       LPCREDS_B64: ${{ secrets.LP_CREDS }}
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
       - name: Checking out repo
         uses: actions/checkout@v4
       - name: Setup Python
