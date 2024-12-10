@@ -101,7 +101,7 @@ def ensure_lp_recipe(
         LOG.info(" Creating LP recipe %s", recipe_name)
         params = dict(**manifest)
         params.pop("auto_build_channels")
-        recipe = (not dry_run) and lp.snaps.new(project=lp_project, **params)
+        recipe = (not dry_run) and lp.client().snaps.new(project=lp_project, **params)
 
     if recipe:
         LOG.info(" Confirming LP recipe %s", recipe_name)
