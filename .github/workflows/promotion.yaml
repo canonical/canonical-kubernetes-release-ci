@@ -82,7 +82,7 @@ jobs:
           LPCREDS=./lp_creds tox -e promote -- propose --gh-action ${{ env.ARGS }}
   promotion-required:
     runs-on: ubuntu-latest
-    if: ${{ needs.promotion-proposal.outputs.proposals && fromJson(needs.promotion-proposal.outputs.proposals) != '[]' }}
+    if: ${{ needs.promotion-proposal.outputs.proposals && needs.promotion-proposal.outputs.proposals != '[]' }}
     needs: promotion-proposal
     steps:
       - run: |
