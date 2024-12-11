@@ -81,6 +81,7 @@ jobs:
         run: |
           LPCREDS=./lp_creds tox -e promote -- propose --gh-action ${{ env.ARGS }}
   test-proposal:
+    if: ${{ needs.promotion-proposal.outputs.proposals && fromJson(needs.promotion-proposal.outputs.proposals) != [] }}
     needs: promotion-proposal
     name: ${{ matrix.arch }} r${{ matrix.revision }} for ${{matrix.snap-channel}}
     strategy:
