@@ -199,6 +199,10 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
 
         final_channel = f"{track}/{next_risk}"
 
+        if not track:
+            chan_log.debug("Skipping trackless channel")
+            continue
+
         if not next_risk:
             chan_log.debug("Skipping promoting stable")
             continue
