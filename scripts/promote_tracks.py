@@ -203,8 +203,9 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             chan_log.debug("Skipping promoting stable")
             continue
 
-        if any(re.fullmatch(pattern, track) for pattern in ignored_tracks):
-            chan_log.debug("Skipping track because it matches ignore pattern %s", track)
+        matched_pattern = next((pattern for pattern in ignored_tracks if re.fullmatch(pattern, track)), None)
+        if matched_pattern:
+            chan_log.debug(f"Skipping ignored track '{track}' (matched pattern: '{matched_pattern}')")
             continue
 
         if arch in ignored_arches:
