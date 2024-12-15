@@ -73,8 +73,8 @@ jobs:
       - name: Assemble auto-promotion Arguments
         if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
-            # Ignore the 1.30 track for auto-promotion. We don't support it.
-            ARGS="$ARGS --ignore-tracks 1.30-moonray 1.30-classic"
+            # Ignore the 1.30 and strict tracks for auto-promotion. We don't support them.
+            ARGS="$ARGS --ignore-tracks ^1\.\d$ ^1\.30(-.*)?$"
             echo "ARGS=$ARGS" >> $GITHUB_ENV
       - name: Propose Promotions
         id: propose-promotions
