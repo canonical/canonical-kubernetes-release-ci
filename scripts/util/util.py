@@ -9,7 +9,9 @@ import util.repo as repo
 LOG = logging.getLogger(__name__)
 SNAP_NAME: str = "k8s"
 SNAP_REPO: str = "https://github.com/canonical/k8s-snap.git/"
-TIP_BRANCH = re.compile(r"^(?:main)|^(?:release-\d+\.\d+)$|^(?:autoupdate\/v\d+\.\d+\.\d+-(?:alpha|beta|rc).\d+)$")
+TIP_BRANCH = re.compile(
+    r"^(?:main)|^(?:release-\d+\.\d+)$|^(?:autoupdate\/v\d+\.\d+\.\d+-(?:alpha|beta|rc).\d+)$"
+)
 
 
 def flavors(dir: str) -> list[str]:

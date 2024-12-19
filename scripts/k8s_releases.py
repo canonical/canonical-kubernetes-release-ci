@@ -22,7 +22,7 @@ def get_k8s_tags() -> List[str]:
     tags_json = json.loads(response)
     if len(tags_json) == 0:
         raise Exception("No k8s tags retrieved.")
-    tag_names = [tag['name'] for tag in tags_json]
+    tag_names = [tag["name"] for tag in tags_json]
     # Github already sorts the tags semantically but let's not rely on that.
     tag_names.sort(key=lambda x: Version(x), reverse=True)
     return tag_names
@@ -42,8 +42,7 @@ def get_latest_stable() -> str:
     for tag in k8s_tags:
         if is_stable_release(tag):
             return tag
-    raise Exception(
-        "Couldn't find stable release, received tags: %s" % k8s_tags)
+    raise Exception("Couldn't find stable release, received tags: %s" % k8s_tags)
 
 
 def get_latest_release() -> str:

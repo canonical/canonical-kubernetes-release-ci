@@ -51,10 +51,14 @@ def ensure_lp_recipe(
 
     if ver.prerelease:
         if flavour != "classic":
-            LOG.info(f"Ignoring pre-release flavour: {flavour}, only 'classic' "
-                      "pre-releases are supported.")
-            return
-        flavor_branch = f"autoupdate/v{ver.major}.{ver.minor}.{ver.patch}-{ver.prerelease}"
+            raise Exception(
+                f"Unsupported pre-release flavour: {flavour}, only 'classic' "
+                "pre-releases are supported."
+            )
+            return ""
+        flavor_branch = (
+            f"autoupdate/v{ver.major}.{ver.minor}.{ver.patch}-{ver.prerelease}"
+        )
     elif tip:
         flavor_branch = "main" if flavour == "classic" else f"autoupdate/{flavour}"
     elif flavour == "classic":
@@ -154,6 +158,12 @@ def prepare_track_builds(branch: str, args: argparse.Namespace):
         LOG.info("Current version detected %s", branch_ver)
         tip = branch == "main"
         for flavour in flavors:
+            if ver.prerelease and flavour != "classic":
+                LOG.info(
+                    f"Ignoring pre-release flavour: {flavour}, only 'classic' "
+                    "pre-releases are supported."
+                )
+                continue
             channels = ensure_snap_channels(flavour, ver, tip, args.dry_run)
             ensure_lp_recipe(flavour, ver, channels, tip, args.dry_run)
 

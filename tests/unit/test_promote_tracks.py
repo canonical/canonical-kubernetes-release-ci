@@ -130,6 +130,7 @@ def test_latest_track(risk, now):
         proposals = promote_tracks.create_proposal(args)
     assert proposals == [], "Latest track should not be promoted"
 
+
 @pytest.mark.parametrize(
     "track, ignored_patterns, expected_ignored",
     [
@@ -143,6 +144,6 @@ def test_ignored_tracks(track, ignored_patterns, expected_ignored):
     with _make_channel_map(track, "edge"):
         args.ignore_tracks = ignored_patterns
         proposals = promote_tracks.create_proposal(args)
-    assert (len(proposals) == 0) == expected_ignored, (
-        f"Track '{track}' should {'be ignored' if expected_ignored else 'not be ignored'}"
-        )
+    assert (
+        (len(proposals) == 0) == expected_ignored
+    ), f"Track '{track}' should {'be ignored' if expected_ignored else 'not be ignored'}"
