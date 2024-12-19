@@ -49,12 +49,16 @@ jobs:
   handle-pre-release:
     name: Handle pre-release ${{ needs.determine.outputs.preRelease }}
     needs: [determine]
+    secrets: inherit
     uses: ./.github/workflows/create-release-branch.yaml
     if: ${{ needs.determine.outputs.preRelease }} != ''
     with:
       branches: ${{ needs.determine.outputs.gitBranch }}
   clean-obsolete:
     runs-on: ubuntu-latest
+    env:
+      CHARMCRAFT_AUTH : ${{ secrets.CHARMCRAFT_AUTH }}
+      LPCREDS_B64: ${{ secrets.LP_CREDS }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
