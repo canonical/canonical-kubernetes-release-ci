@@ -49,7 +49,13 @@ def ensure_lp_recipe(
 
     recipe_name = util.recipe_name(flavour, ver, tip)
 
-    if tip:
+    if ver.prerelease:
+        if flavour != "classic":
+            LOG.info(f"Ignoring pre-release flavour: {flavour}, only 'classic' "
+                      "pre-releases are supported.")
+            return
+        flavor_branch = f"autoupdate/v{ver.major}.{ver.minor}.{ver.patch}-{ver.prerelease}"
+    elif tip:
         flavor_branch = "main" if flavour == "classic" else f"autoupdate/{flavour}"
     elif flavour == "classic":
         flavor_branch = f"release-{ver.major}.{ver.minor}"
