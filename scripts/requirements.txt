@@ -4,6 +4,8 @@ httplib2==0.22.0
 launchpadlib==1.11.0
 lazr-restfulclient==0.14.6
 lazr-uri==1.0.6
+packaging==24.2
+requests==2.32.3
 semver==3.0.2
 six==1.16.0
 tox==4.20.0
