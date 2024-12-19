@@ -1,0 +1,87 @@
+name: Auto-update pre-release branches
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/update-pre-release-branches.yaml
+  schedule:
+    # Run 20 minutes after midnight, giving the k8s-snap nightly job
+    # enough time to pick up new k8s releases and setup the git branches.
+    - cron: "20 0 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  determine:
+    name: "Determine k8s pre-release"
+    runs-on: ubuntu-latest
+    outputs:
+      preRelease: ${{ steps.determine.outputs.preRelease }}
+      gitBranch: ${{ steps.determine.outputs.gitBranch }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.BOT_SSH_KEY }}
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install Python dependencies
+        shell: bash
+        run: pip3 install -r ./scripts/requirements.txt
+      - name: Determine outstanding pre-release
+        id: determine
+        run: |
+          preRelease=`python3 ./scripts/k8s_releases.py get_outstanding_prerelease`
+          echo "preRelease=$preRelease" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "$preRelease" ]]; then
+            gitBranch="autoupdate/$preRelease"
+          fi
+          echo "gitBranch=$gitBranch" >> "$GITHUB_OUTPUT"
+  handle-pre-release:
+    name: Handle pre-release ${{ needs.determine.outputs.preRelease }}
+    needs: [determine]
+    uses: ./.github/workflows/create-release-branch.yaml
+    if: ${{ needs.determine.outputs.preRelease }} != ''
+    with:
+      branches: ${{ needs.determine.outputs.gitBranch }}
+  clean-obsolete:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ssh-key: ${{ secrets.BOT_SSH_KEY }}
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install Python dependencies
+        shell: bash
+        run: pip3 install -r ./scripts/requirements.txt
+      - name: Clean obsolete branches
+        run: |
+          git fetch origin
+
+          # Log the latest release for reference.
+          latestRelease=`python3 ./scripts/k8s_releases.py get_latest_release`
+          echo "Latest k8s release: $latestRelease"
+
+          for outstandingPreRelease in `python3 ./scripts/k8s_releases.py get_obsolete_prereleases`; do
+            gitBranch="autoupdate/${outstandingPreRelease}"
+            echo "Cleaning up obsolete pre-release branch: $gitBranch"
+            # TODO
+          done
