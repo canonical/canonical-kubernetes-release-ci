@@ -55,7 +55,6 @@ def ensure_lp_recipe(
                 f"Unsupported pre-release flavour: {flavour}, only 'classic' "
                 "pre-releases are supported."
             )
-            return ""
         flavor_branch = (
             f"autoupdate/v{ver.major}.{ver.minor}.{ver.patch}-{ver.prerelease}"
         )

@@ -39,7 +39,7 @@ jobs:
       - name: Determine outstanding pre-release
         id: determine
         run: |
-          preRelease=`python3 ./scripts/k8s_releases.py get_outstanding_prerelease`
+          preRelease=`python3 ./scripts/k8s_release.py get_outstanding_prerelease`
           echo "preRelease=$preRelease" >> "$GITHUB_OUTPUT"
 
           if [[ -n "$preRelease" ]]; then
@@ -78,14 +78,4 @@ jobs:
         run: pip3 install -r ./scripts/requirements.txt
       - name: Clean obsolete branches
         run: |
-          git fetch origin
-
-          # Log the latest release for reference.
-          latestRelease=`python3 ./scripts/k8s_releases.py get_latest_release`
-          echo "Latest k8s release: $latestRelease"
-
-          for outstandingPreRelease in `python3 ./scripts/k8s_releases.py get_obsolete_prereleases`; do
-            gitBranch="autoupdate/${outstandingPreRelease}"
-            echo "Cleaning up obsolete pre-release branch: $gitBranch"
-            # TODO
-          done
+          python3 ./scripts/k8s_release.py remove_obsolete_prereleases
