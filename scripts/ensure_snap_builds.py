@@ -55,8 +55,11 @@ def ensure_lp_recipe(
                 f"Unsupported pre-release flavour: {flavour}, only 'classic' "
                 "pre-releases are supported."
             )
+        # Use a single branch for all pre-releases of a given risk level,
+        # e.g. v1.33.0-alpha.0 -> autoupdate/v1.33.0-alpha
+        prerelease = ver.prerelease.split(".")[0]
         flavor_branch = (
-            f"autoupdate/v{ver.major}.{ver.minor}.{ver.patch}-{ver.prerelease}"
+            f"autoupdate/v{ver.major}.{ver.minor}.{ver.patch}-{prerelease}"
         )
     elif tip:
         flavor_branch = "main" if flavour == "classic" else f"autoupdate/{flavour}"

@@ -43,7 +43,7 @@ jobs:
           echo "preRelease=$preRelease" >> "$GITHUB_OUTPUT"
 
           if [[ -n "$preRelease" ]]; then
-            gitBranch="autoupdate/$preRelease"
+            gitBranch=`python3 ./scripts/k8s_release.py get_prerelease_git_branch --prerelease $preRelease`
           fi
           echo "gitBranch=$gitBranch" >> "$GITHUB_OUTPUT"
   handle-pre-release:

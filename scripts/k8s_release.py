@@ -3,7 +3,7 @@
 import argparse
 import json
 import logging
-import os
+import re
 import subprocess
 from typing import List, Optional
 
@@ -98,24 +98,16 @@ def _branch_exists(
     return branch_name in stdout
 
 
-def clean_obsolete_git_branches(project_basedir: Optional[str] = None, remote="origin"):
-    """Remove obsolete pre-release git branches."""
-    latest_release = get_latest_release()
-    LOG.info("Latest k8s release: %s", latest_release)
+def get_prerelease_git_branch(prerelease: str):
+    """Retrieve the name of the k8s-snap git branch for a given k8s pre-release."""
+    prerelease_re = r"v\d+\.\d+\.\d-(?:alpha|beta|rc)\.\d+"
+    if not re.match(prerelease_re, prerelease):
+        raise ValueError("Unexpected k8s pre-release name: %s", prerelease)
 
-    _exec(["git", "fetch", remote], cwd=project_basedir)
-
-    obsolete_prereleases = get_obsolete_prereleases()
-    for outstanding_prerelease in obsolete_prereleases:
-        branch = f"autoupdate/{outstanding_prerelease}"
-
-        if _branch_exists(
-            f"{remote}/{branch}", remote=True, project_basedir=project_basedir
-        ):
-            LOG.info("Cleaning up obsolete pre-release branch: %s", branch)
-            _exec(["git", "push", remote, "--delete", branch], cwd=project_basedir)
-        else:
-            LOG.info("Obsolete branch not found, skpping: %s", branch)
+    # Use a single branch for all pre-releases of a given risk level,
+    # e.g. v1.33.0-alpha.0 -> autoupdate/v1.33.0-alpha
+    branch = f"autoupdate/{prerelease}"
+    return re.sub(r"(-[a-zA-Z]+)\.[0-9]+", r"\1", branch)
 
 
 def remove_obsolete_prereleases():
@@ -128,14 +120,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="subparser", required=True)
 
-    cmd = subparsers.add_parser("clean_obsolete_git_branches")
+    cmd = subparsers.add_parser("get_prerelease_git_branch")
     cmd.add_argument(
-        "--project-basedir",
-        dest="project_basedir",
-        help="The k8s-snap project base directory.",
-        default=os.getcwd(),
+        "--prerelease",
+        dest="prerelease",
+        help="The upstream k8s pre-release.",
     )
-    cmd.add_argument("--remote", dest="remote", help="Git remote.", default="origin")
 
     subparsers.add_parser("get_outstanding_prerelease")
     subparsers.add_parser("remove_obsolete_prereleases")
