@@ -83,7 +83,7 @@ jobs:
           TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channel, ' ') }}
           # Upgrading from 1.30 is not supported.
           TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
-          TEST_DEFAULT_WAIT_RETRIES: 30
+          TEST_DEFAULT_WAIT_RETRIES: 200
           TEST_DEFAULT_WAIT_DELAY_S: 10
         run: |
           tox -e promote -- \
