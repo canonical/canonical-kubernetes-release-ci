@@ -12,6 +12,7 @@ def client():
     """Use launchpad credentials to interact with launchpad."""
     cred_file = os.getenv("LPCREDS")
     creds_local = os.getenv("LPLOCAL")
+    anon_login = os.getenv("LPANON", "").lower() in ("1", "true")
     if cred_file:
         parser = ConfigParser()
         parser.read(cred_file)
@@ -26,6 +27,11 @@ def client():
             "localhost",
             "production",
             version="devel",
+        )
+    elif anon_login:
+        # Anonymous login, can be used for dry-runs.
+        return Launchpad.login_anonymously(
+            "Canonical K8s promotion dry-run", "production", version="devel"
         )
     else:
         raise ValueError("No launchpad credentials found")
