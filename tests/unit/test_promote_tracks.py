@@ -116,9 +116,9 @@ def test_risk_promotable_without_stable(risk, now):
     with freeze_time(now), _make_channel_map(MOCK_TRACK, risk):
         proposals = promote_tracks.create_proposal(args)
 
-    assert (
-        proposals == []
-    ), "Candidate track should not be promoted if stable is missing"
+    assert proposals == [], (
+        "Candidate track should not be promoted if stable is missing"
+    )
 
 
 @pytest.mark.parametrize(
@@ -144,6 +144,6 @@ def test_ignored_tracks(track, ignored_patterns, expected_ignored):
     with _make_channel_map(track, "edge"):
         args.ignore_tracks = ignored_patterns
         proposals = promote_tracks.create_proposal(args)
-    assert (
-        (len(proposals) == 0) == expected_ignored
-    ), f"Track '{track}' should {'be ignored' if expected_ignored else 'not be ignored'}"
+    assert (len(proposals) == 0) == expected_ignored, (
+        f"Track '{track}' should {'be ignored' if expected_ignored else 'not be ignored'}"
+    )

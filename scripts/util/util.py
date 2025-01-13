@@ -1,8 +1,14 @@
 import argparse
+import json
 import logging
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
+import requests
 import semver
 import util.repo as repo
 
@@ -52,3 +58,26 @@ def setup_arguments(arg_parser: argparse.ArgumentParser):
     args = arg_parser.parse_args()
     setup_logging(args)
     return args
+
+
+def download_file(url: str, dest: str, timeout: int = 10):
+    with requests.get(url, stream=True, timeout=timeout) as r:
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(r.raw, f)
+
+
+def get_k8s_snap_bom(url: str):
+    tmpdir = tempfile.mkdtemp()
+    try:
+        snap_path = os.path.join(tmpdir, "k8s.snap")
+        download_file(url, snap_path)
+        subprocess.run(
+            ["unsquashfs", "-q", "-n", snap_path, "-extract-file", "bom.json"],
+            check=True,
+            cwd=tmpdir,
+        )
+        bom_path = os.path.join(tmpdir, "squashfs-root", "bom.json")
+        with open(bom_path, "r") as f:
+            return json.load(f)
+    finally:
+        shutil.rmtree(tmpdir)
