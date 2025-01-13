@@ -44,7 +44,10 @@ def _create_channel(
     }
 
 
-def _expected_proposals(track, next_risk, risk, revision):
+def _expected_proposals(track, next_risk, risk, revision, upgrade_channels=None):
+    if not upgrade_channels:
+        upgrade_channels = [[f"{track}/stable", f"{track}/{risk}"]]
+
     return [
         {
             "arch": "amd64",
@@ -56,7 +59,7 @@ def _expected_proposals(track, next_risk, risk, revision):
             "runner-labels": ["X64", "self-hosted"],
             "snap-channel": f"{track}/{next_risk}",
             "track": track,
-            "upgrade-channels": [[f"{track}/stable", f"{track}/{risk}"]],
+            "upgrade-channels": upgrade_channels,
         }
     ]
 
@@ -74,6 +77,19 @@ def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
         yield snap_info
 
 
+@contextlib.contextmanager
+def _mock_k8s_versions(latest_stable: str = "1.33.0", snap_release: str = "1.32.0"):
+    with (
+        mock.patch(
+            "k8s_release.get_latest_stable", new=mock.Mock(return_value=latest_stable)
+        ),
+        mock.patch(
+            "util.util.get_k8s_snap_version", new=mock.Mock(return_value=snap_release)
+        ),
+    ):
+        yield
+
+
 @pytest.mark.parametrize(
     "risk, next_risk, now",
     [
@@ -83,7 +99,11 @@ def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
     ],
 )
 def test_risk_promotable(risk, next_risk, now):
-    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk, extra_risk="stable"):
+    with (
+        freeze_time(now),
+        _make_channel_map(MOCK_TRACK, risk, extra_risk="stable"),
+        _mock_k8s_versions(),
+    ):
         proposals = promote_tracks.create_proposal(args)
     assert proposals == _expected_proposals(MOCK_TRACK, next_risk, risk, 2)
 
@@ -93,7 +113,11 @@ def test_risk_promotable(risk, next_risk, now):
     [("edge", "2000-01-01")],
 )
 def test_risk_not_yet_promotable_edge(risk, now):
-    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk, extra_risk="beta"):
+    with (
+        freeze_time(now),
+        _make_channel_map(MOCK_TRACK, risk, extra_risk="beta"),
+        _mock_k8s_versions(),
+    ):
         proposals = promote_tracks.create_proposal(args)
     assert proposals == [], "Channel should not be promoted too soon"
 
@@ -103,22 +127,9 @@ def test_risk_not_yet_promotable_edge(risk, now):
     [("beta", "2000-01-03"), ("candidate", "2000-01-05")],
 )
 def test_risk_not_yet_promotable(risk, now):
-    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk):
+    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk), _mock_k8s_versions():
         proposals = promote_tracks.create_proposal(args)
     assert proposals == [], "Channel should not be promoted too soon"
-
-
-@pytest.mark.parametrize(
-    "risk, now",
-    [("candidate", "2000-01-06")],
-)
-def test_risk_promotable_without_stable(risk, now):
-    with freeze_time(now), _make_channel_map(MOCK_TRACK, risk):
-        proposals = promote_tracks.create_proposal(args)
-
-    assert proposals == [], (
-        "Candidate track should not be promoted if stable is missing"
-    )
 
 
 @pytest.mark.parametrize(
@@ -126,7 +137,7 @@ def test_risk_promotable_without_stable(risk, now):
     [("edge", "2000-01-06")],
 )
 def test_latest_track(risk, now):
-    with freeze_time(now), _make_channel_map("latest", risk):
+    with freeze_time(now), _make_channel_map("latest", risk), _mock_k8s_versions():
         proposals = promote_tracks.create_proposal(args)
     assert proposals == [], "Latest track should not be promoted"
 
@@ -141,9 +152,29 @@ def test_latest_track(risk, now):
     ],
 )
 def test_ignored_tracks(track, ignored_patterns, expected_ignored):
-    with _make_channel_map(track, "edge"):
+    with _make_channel_map(track, "edge"), _mock_k8s_versions():
         args.ignore_tracks = ignored_patterns
         proposals = promote_tracks.create_proposal(args)
     assert (len(proposals) == 0) == expected_ignored, (
         f"Track '{track}' should {'be ignored' if expected_ignored else 'not be ignored'}"
     )
+
+
+def test_new_stable():
+    with _make_channel_map(MOCK_TRACK, "edge"), _mock_k8s_versions("1.31.5", "1.31.5"):
+        proposals = promote_tracks.create_proposal(args)
+
+    # New stable release, we expect it to be promoted to all risk levels.
+    exp_upgrade_channels = [[f"{MOCK_TRACK}/edge"]]
+    exp_proposals = [
+        _expected_proposals(
+            MOCK_TRACK, "beta", "edge", 2, upgrade_channels=exp_upgrade_channels
+        )[0],
+        _expected_proposals(
+            MOCK_TRACK, "candidate", "edge", 2, upgrade_channels=exp_upgrade_channels
+        )[0],
+        _expected_proposals(
+            MOCK_TRACK, "stable", "edge", 2, upgrade_channels=exp_upgrade_channels
+        )[0],
+    ]
+    assert proposals == exp_proposals

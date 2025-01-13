@@ -84,6 +84,12 @@ def get_k8s_snap_bom(url: str):
         shutil.rmtree(tmpdir)
 
 
+def get_k8s_snap_version(url: str) -> str:
+    """Retrieve the Kubernetes component version for a given snap download url."""
+    bom = get_k8s_snap_bom(url)
+    return bom["components"]["kubernetes"]["version"]
+
+
 def execute(cmd: List[str], check=True, timeout=EXEC_TIMEOUT, cwd=None):
     """Run the specified command and return the stdout/stderr output as a tuple."""
     LOG.debug("Executing: %s, cwd: %s.", cmd, cwd)

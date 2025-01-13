@@ -199,8 +199,6 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         revision = channel_info.revision
         chan_log = logging.getLogger(f"{logger_name} {track:>15}/{risk:<9}")
 
-        final_channel = f"{track}/{next_risk}"
-
         if not track:
             chan_log.debug("Skipping trackless channel")
             continue
@@ -249,7 +247,9 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             != channels.get(f"{track}/{risk}", EMPTY_CHANNEL).version
         )
 
-        def _get_proposal():
+        def _get_proposal(next_risk):
+            final_channel = f"{track}/{next_risk}"
+
             proposal = {}
             proposal["arch"] = arch
             proposal["branch"] = lp.branch_from_track(util.SNAP_NAME, track)
@@ -270,8 +270,9 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         # Out of caution, we'll only do this for the latest upstream release
         # and channels that do not have a beta release yet.
         if risk == "edge" and f"{track}/beta" not in channels.keys():
-            bom = util.get_k8s_snap_bom((channel_info.download or {}).get("url"))
-            k8s_version = bom["components"]["kubernetes"]["version"]
+            k8s_version = util.get_k8s_snap_version(
+                (channel_info.download or {}).get("url")
+            )
             if k8s_version == latest_upstream_stable:
                 chan_log.info(
                     f"{track}/edge contains a stable upstream release: {k8s_version}, "
@@ -285,17 +286,17 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
                         arch,
                         proposed_risk,
                     )
-                    proposal = _get_proposal()
-                    proposal["next-risk"] = proposed_risk
+                    proposal = _get_proposal(next_risk=proposed_risk)
                     proposals.append(proposal)
-        elif purgatory_complete or new_patch_in_edge:
+                continue
+        if purgatory_complete or new_patch_in_edge:
             chan_log.info(
                 "Promotes rev=%-5s arch=%s to %s",
                 revision,
                 arch,
                 next_risk,
             )
-            proposal = _get_proposal()
+            proposal = _get_proposal(next_risk=next_risk)
             proposals.append(proposal)
     return proposals
 
