@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import List
 
 import requests
 import semver
@@ -18,6 +19,7 @@ SNAP_REPO: str = "https://github.com/canonical/k8s-snap.git/"
 TIP_BRANCH = re.compile(
     r"^(?:main)|^(?:release-\d+\.\d+)$|^(?:autoupdate\/v\d+\.\d+\.\d+-(?:alpha|beta|rc))$"
 )
+EXEC_TIMEOUT = 60
 
 
 def flavors(dir: str) -> list[str]:
@@ -71,9 +73,8 @@ def get_k8s_snap_bom(url: str):
     try:
         snap_path = os.path.join(tmpdir, "k8s.snap")
         download_file(url, snap_path)
-        subprocess.run(
+        execute(
             ["unsquashfs", "-q", "-n", snap_path, "-extract-file", "bom.json"],
-            check=True,
             cwd=tmpdir,
         )
         bom_path = os.path.join(tmpdir, "squashfs-root", "bom.json")
@@ -81,3 +82,12 @@ def get_k8s_snap_bom(url: str):
             return json.load(f)
     finally:
         shutil.rmtree(tmpdir)
+
+
+def execute(cmd: List[str], check=True, timeout=EXEC_TIMEOUT, cwd=None):
+    """Run the specified command and return the stdout/stderr output as a tuple."""
+    LOG.debug("Executing: %s, cwd: %s.", cmd, cwd)
+    proc = subprocess.run(
+        cmd, check=check, timeout=timeout, cwd=cwd, capture_output=True, text=True
+    )
+    return proc.stdout, proc.stderr

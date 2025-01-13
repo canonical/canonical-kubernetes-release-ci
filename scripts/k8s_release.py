@@ -4,14 +4,13 @@ import argparse
 import json
 import logging
 import re
-import subprocess
 from typing import List, Optional
 
 import requests
+import util.util as util
 from packaging.version import Version
 
 K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags"
-EXEC_TIMEOUT = 60
 
 LOG = logging.getLogger(__name__)
 
@@ -78,15 +77,6 @@ def get_obsolete_prereleases() -> List[str]:
     return [tag for tag in k8s_tags if not is_stable_release(tag)]
 
 
-def _exec(cmd: List[str], check=True, timeout=EXEC_TIMEOUT, cwd=None):
-    """Run the specified command and return the stdout/stderr output as a tuple."""
-    LOG.debug("Executing: %s, cwd: %s.", cmd, cwd)
-    proc = subprocess.run(
-        cmd, check=check, timeout=timeout, cwd=cwd, capture_output=True, text=True
-    )
-    return proc.stdout, proc.stderr
-
-
 def _branch_exists(
     branch_name: str, remote=True, project_basedir: Optional[str] = None
 ):
@@ -94,7 +84,7 @@ def _branch_exists(
     if remote:
         cmd += ["-r"]
 
-    stdout, stderr = _exec(cmd, cwd=project_basedir)
+    stdout, stderr = util.execute(cmd, cwd=project_basedir)
     return branch_name in stdout
 
 
