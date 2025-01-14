@@ -97,3 +97,17 @@ def execute(cmd: List[str], check=True, timeout=EXEC_TIMEOUT, cwd=None):
         cmd, check=check, timeout=timeout, cwd=cwd, capture_output=True, text=True
     )
     return proc.stdout, proc.stderr
+
+
+def upstream_prerelease_to_snap_track(prerelease: str) -> str:
+    prerelease_map = {
+        "alpha": "edge",
+        "beta": "beta",
+        "rc": "candidate",
+    }
+    track = prerelease_map.get(prerelease.split(".")[0])
+    if not track:
+        raise ValueError(
+            "Could not determine snap track for upstream pre-release: %s" % prerelease
+        )
+    return track

@@ -29,7 +29,14 @@ def ensure_snap_channels(
     else:
         name = f"{ver.major}.{ver.minor}"
         name += f"-{flavour}" if flavour != "strict" else ""
-        channels += [f"{name}/edge"]
+        track = "edge"
+        if ver.prerelease:
+            track = util.upstream_prerelease_to_snap_track(ver.prerelease)
+        else:
+            # Stable release, push to "edge" and go through the usual
+            # promotion workflow.
+            track = "edge"
+        channels += [f"{name}/{track}"]
 
     LOG.info("Ensure snap channels %s for ver %s in snapstore", ",".join(channels), ver)
     for channel in channels:
