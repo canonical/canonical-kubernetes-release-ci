@@ -246,6 +246,9 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             and channels.get(f"{track}/{next_risk}", EMPTY_CHANNEL).version
             != channels.get(f"{track}/{risk}", EMPTY_CHANNEL).version
         )
+        revision_in_stable = bool(
+            channels.get(f"{track}/stable", EMPTY_CHANNEL).revision
+        )
 
         def _get_proposal(next_risk):
             final_channel = f"{track}/{next_risk}"
@@ -267,9 +270,9 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
 
         # Whenever there's a new stable upstream release, we'll skip purgatory
         # and promote it to all risk levels, including stable.
-        # Out of caution, we'll only do this for the latest upstream release
-        # and channels that do not have a beta release yet.
-        if risk == "edge" and f"{track}/beta" not in channels.keys():
+        # We'll only do this for the latest upstream release
+        # and channels that do not have a stable release yet.
+        if new_patch_in_edge and not revision_in_stable:
             k8s_version = util.get_k8s_snap_version(
                 (channel_info.download or {}).get("url")
             )
