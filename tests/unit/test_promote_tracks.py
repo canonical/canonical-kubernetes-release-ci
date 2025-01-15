@@ -78,13 +78,10 @@ def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
 
 
 @contextlib.contextmanager
-def _mock_k8s_versions(latest_stable: str = "1.33.0", snap_release: str = "1.32.0"):
+def _mock_k8s_versions(latest_stable: str = "v1.33.0"):
     with (
         mock.patch(
             "k8s_release.get_latest_stable", new=mock.Mock(return_value=latest_stable)
-        ),
-        mock.patch(
-            "util.util.get_k8s_snap_version", new=mock.Mock(return_value=snap_release)
         ),
     ):
         yield
@@ -161,7 +158,8 @@ def test_ignored_tracks(track, ignored_patterns, expected_ignored):
 
 
 def test_new_stable():
-    with _make_channel_map(MOCK_TRACK, "edge"), _mock_k8s_versions("1.31.5", "1.31.5"):
+    # In this scenario, the channel version matches the latest stable.
+    with _make_channel_map(MOCK_TRACK, "edge"), _mock_k8s_versions("v1.31.0"):
         proposals = promote_tracks.create_proposal(args)
 
     # New stable release, we expect it to be promoted to all risk levels.

@@ -273,9 +273,7 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         # We'll only do this for the latest upstream release
         # and channels that do not have a stable release yet.
         if not revision_in_stable:
-            k8s_version = util.get_k8s_snap_version(
-                (channel_info.download or {}).get("url")
-            )
+            k8s_version = channel_info.version
 
             if new_patch_in_edge and k8s_version == latest_upstream_stable:
                 chan_log.info(

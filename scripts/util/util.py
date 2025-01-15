@@ -1,15 +1,10 @@
 import argparse
-import json
 import logging
-import os
 import re
-import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import List
 
-import requests
 import semver
 import util.repo as repo
 
@@ -60,34 +55,6 @@ def setup_arguments(arg_parser: argparse.ArgumentParser):
     args = arg_parser.parse_args()
     setup_logging(args)
     return args
-
-
-def download_file(url: str, dest: str, timeout: int = 10):
-    with requests.get(url, stream=True, timeout=timeout) as r:
-        with open(dest, "wb") as f:
-            shutil.copyfileobj(r.raw, f)
-
-
-def get_k8s_snap_bom(url: str):
-    tmpdir = tempfile.mkdtemp()
-    try:
-        snap_path = os.path.join(tmpdir, "k8s.snap")
-        download_file(url, snap_path)
-        execute(
-            ["unsquashfs", "-q", "-n", snap_path, "-extract-file", "bom.json"],
-            cwd=tmpdir,
-        )
-        bom_path = os.path.join(tmpdir, "squashfs-root", "bom.json")
-        with open(bom_path, "r") as f:
-            return json.load(f)
-    finally:
-        shutil.rmtree(tmpdir)
-
-
-def get_k8s_snap_version(url: str) -> str:
-    """Retrieve the Kubernetes component version for a given snap download url."""
-    bom = get_k8s_snap_bom(url)
-    return bom["components"]["kubernetes"]["version"]
 
 
 def execute(cmd: List[str], check=True, timeout=EXEC_TIMEOUT, cwd=None):
