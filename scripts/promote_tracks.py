@@ -272,11 +272,12 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         # and promote it to all risk levels, including stable.
         # We'll only do this for the latest upstream release
         # and channels that do not have a stable release yet.
-        if new_patch_in_edge and not revision_in_stable:
+        if not revision_in_stable:
             k8s_version = util.get_k8s_snap_version(
                 (channel_info.download or {}).get("url")
             )
-            if k8s_version == latest_upstream_stable:
+
+            if new_patch_in_edge and k8s_version == latest_upstream_stable:
                 chan_log.info(
                     f"{track}/edge contains a stable upstream release: {k8s_version}, "
                     "we'll skip purgatory and promote it to all risk levels "
@@ -291,6 +292,13 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
                     )
                     proposal = _get_proposal(next_risk=proposed_risk)
                     proposals.append(proposal)
+                continue
+
+            if not k8s_release.is_stable_release(k8s_version):
+                chan_log.info(
+                    f"{track}/{risk} contains pre-release: {k8s_version}, "
+                    "automatic promotion disabled."
+                )
                 continue
         if purgatory_complete or new_patch_in_edge:
             chan_log.info(
