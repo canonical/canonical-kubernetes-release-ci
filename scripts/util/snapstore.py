@@ -1,8 +1,9 @@
 import base64
 import json
 import logging
-import requests
 import os
+
+import requests
 
 LOG = logging.getLogger(__name__)
 INFO_URL = "https://api.snapcraft.io/v2/snaps/info/"
@@ -23,11 +24,12 @@ def info(snap_name):
 
 def track_exists(snap_name: str, track_name: str):
     snap_info = info(snap_name)
-    for channel_data in snap_info['channel-map']:
-        track = channel_data['channel']['track']
+    for channel_data in snap_info["channel-map"]:
+        track = channel_data["channel"]["track"]
         if track == track_name:
             return True
     return False
+
 
 def ensure_track(snap_name: str, track_name: str):
     LOG.info("Ensuring track: %s %s", snap_name, track_name)
@@ -35,6 +37,7 @@ def ensure_track(snap_name: str, track_name: str):
         create_track(snap_name, track_name)
     else:
         LOG.info("Track already exists: %s %s", snap_name, track_name)
+
 
 def create_track(snap_name: str, track_name: str):
     LOG.info("Creating track: %s %s", snap_name, track_name)
@@ -61,4 +64,4 @@ def get_charmhub_auth_macaroon() -> str:
 
     str_data = base64.b64decode(creds_export_data).decode()
     auth = json.loads(str(str_data))
-    return auth['v']
+    return auth["v"]

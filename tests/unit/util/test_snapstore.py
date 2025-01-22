@@ -1,8 +1,11 @@
+import base64
 import json
-from unittest.mock import patch, MagicMock
-from urllib.error import HTTPError, URLError
+from unittest.mock import MagicMock, patch
+
 import pytest
+import requests
 import util.snapstore as snapstore
+
 
 @patch("util.snapstore.requests.get")
 def test_info_success(mock_get):
@@ -20,6 +23,7 @@ def test_info_success(mock_get):
         timeout=snapstore.TIMEOUT,
     )
 
+
 @patch("util.snapstore.requests.get")
 def test_info_http_error(mock_get):
     # Mock an HTTPError
@@ -30,6 +34,7 @@ def test_info_http_error(mock_get):
     with pytest.raises(requests.HTTPError):
         snapstore.info("non-existent-snap")
 
+
 @patch("util.snapstore.requests.get")
 def test_info_url_error(mock_get):
     # Mock a ConnectionError (similar to URLError in urllib)
@@ -38,6 +43,7 @@ def test_info_url_error(mock_get):
     with pytest.raises(requests.ConnectionError):
         snapstore.info("non-existent-snap")
 
+
 @patch("util.snapstore.track_exists", return_value=True)
 @patch("util.snapstore.create_track")
 def test_ensure_track_exists(mock_create_track, mock_track_exists):
@@ -45,12 +51,14 @@ def test_ensure_track_exists(mock_create_track, mock_track_exists):
     mock_track_exists.assert_called_once_with("test-snap", "test-track")
     mock_create_track.assert_not_called()
 
+
 @patch("util.snapstore.track_exists", return_value=False)
 @patch("util.snapstore.create_track")
 def test_ensure_track_create(mock_create_track, mock_track_exists):
     snapstore.ensure_track("test-snap", "test-track")
     mock_track_exists.assert_called_once_with("test-snap", "test-track")
     mock_create_track.assert_called_once_with("test-snap", "test-track")
+
 
 @patch("util.snapstore.requests.post")
 @patch("util.snapstore.get_charmhub_auth_macaroon", return_value="mock-macaroon")
@@ -72,11 +80,16 @@ def test_create_track(mock_get_auth, mock_post):
         timeout=snapstore.TIMEOUT,
     )
 
-@patch("util.snapstore.os.getenv", return_value=base64.b64encode(b'{"v": "mock-macaroon"}').decode())
+
+@patch(
+    "util.snapstore.os.getenv",
+    return_value=base64.b64encode(b'{"v": "mock-macaroon"}').decode(),
+)
 def test_get_charmhub_auth_macaroon(mock_getenv):
     result = snapstore.get_charmhub_auth_macaroon()
     assert result == "mock-macaroon"
     mock_getenv.assert_called_once_with("CHARMCRAFT_AUTH")
+
 
 @patch("util.snapstore.os.getenv", return_value=None)
 def test_get_charmhub_auth_macaroon_missing(mock_getenv):
