@@ -13,6 +13,7 @@ HEADERS = {
     "Snap-Device-Series": "16",
     "User-Agent": "Mozilla/5.0",
 }
+# Timeout for Store API request in seconds
 TIMEOUT = 10
 
 
