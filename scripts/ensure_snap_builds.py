@@ -38,9 +38,15 @@ def ensure_snap_channels(
             track = "edge"
         channels += [f"{name}/{track}"]
 
-    LOG.info("Ensure snap channels %s for ver %s in snapstore", ",".join(channels), ver)
-    for channel in channels:
-        (not dry_run) and snapstore.ensure_track(util.SNAP_NAME, channel)
+    # Only the tracks (e.g. 1.33-classic) need to be created in the snapstore.
+    # The channels (e.g. latest/edge/classic) will be opened automatically.
+    # Ensure each track is tested only once.
+    unique_tracks = {channel.split("/")[0] for channel in channels}
+    LOG.info("Ensure snap tracks %s for ver %s in snapstore", ",".join(unique_tracks), ver)
+    for track in unique_tracks:
+        if not dry_run:
+            snapstore.ensure_track(util.SNAP_NAME, track)
+
     return channels
 
 
