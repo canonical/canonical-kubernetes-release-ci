@@ -62,6 +62,13 @@ def ensure_lp_recipe(
 
     recipe_name = util.recipe_name(flavour, ver, tip)
 
+    if flavour == "strict":
+        LOG.warning("Disabling snap auto-build for 'strict' flavor, which is "
+                    "currently unsupported.")
+        auto_build = False
+    else:
+        auto_build = True
+
     if ver.prerelease:
         if flavour != "classic":
             raise Exception(
@@ -97,7 +104,7 @@ def ensure_lp_recipe(
     lp_archive = client.archives.getByReference(reference="ubuntu")
     lp_snappy_series = client.snappy_serieses.getByName(name="16")
     manifest = dict(
-        auto_build=True,
+        auto_build=auto_build,
         auto_build_archive=lp_archive,
         auto_build_pocket="Updates",
         auto_build_channels={"snapcraft": "8.x/stable"},
