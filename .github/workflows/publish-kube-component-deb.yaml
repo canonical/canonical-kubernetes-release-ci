@@ -1,0 +1,223 @@
+name: Build and Publish Kubernetes Component Debian Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: "Kubernetes component to package"
+        required: true
+        type: choice
+        options:
+          - kubeadm
+          - kubelet
+          - kubectl
+      tag:
+        description: "Upstream Kubernetes release tag (e.g., v1.32.3)"
+        required: true
+        type: string
+      version-postfix:
+        description: "Version postfix for the package (e.g., build1). Final version: {tag}-{version-postfix}"
+        required: true
+        type: string
+      copyright:
+        description: "License for the package"
+        required: false
+        default: "apache"
+        type: string
+      dry-run:
+        description: "Dry run mode (true/false). If true, no upload to PPA will be performed."
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  WORKSPACE: ${{ github.workspace }}/debs
+
+jobs:
+  publish-deb:
+    name: Build and Publish Debian Package
+    runs-on: ubuntu-24.04
+    
+    steps:
+      - name: Setup working directory
+        run: mkdir -p ${{ env.WORKSPACE }}
+
+      - name: Set version variable
+        run: |
+          K8S_VERSION=$(echo ${{ inputs.tag }} | sed 's/v//')
+          VERSION=$K8S_VERSION-${{ inputs.version-postfix }}
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          
+          # For PPA naming, extract major.minor version
+          MAJ_MIN=$(echo ${{ inputs.tag }} | sed 's/\(v\{0,1\}[0-9]\+\.[0-9]\+\)\.[0-9]*/\1/')
+          echo "MAJ_MIN=${MAJ_MIN}" >> $GITHUB_ENV
+          
+          echo "Set version: ${VERSION}"
+          echo "Set major.minor: ${MAJ_MIN}"
+ 
+      - name: Clone Kubernetes repository
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          echo "Cloning Kubernetes repo at tag ${{ inputs.tag }}"
+          git clone --depth 1 --branch ${{ inputs.tag }} git@github.com:kubernetes/kubernetes.git
+          cd kubernetes
+          git switch -c ${{ inputs.component }}_${{ env.VERSION }}_deb
+        shell: bash
+      
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y devscripts debhelper dh-make build-essential
+        shell: bash
+      
+      - name: Create Debian package structure
+        working-directory: ${{ env.WORKSPACE }}/kubernetes
+        env:
+          DEBFULLNAME: ${{ secrets.BOT_FULL_NAME }}
+        run: |
+          echo "Creating Debian package structure for ${{ inputs.component }}_${{ env.VERSION }}"
+          dh_make -p ${{ inputs.component }}_${{ env.VERSION }} --single --native --copyright ${{ inputs.copyright }} --email ${{ secrets.BOT_EMAIL }} -y
+          
+          # Remove example files
+          find debian -name "*.ex" -o -name "*.EX" | xargs -I{} rm {}
+        shell: bash
+      
+      - name: Configure package metadata
+        working-directory: ${{ env.WORKSPACE }}/kubernetes/debian
+        run: |
+          # Create source/options
+          cat > source/options << EOF
+          tar-ignore = ".git"
+          tar-ignore = ".docs"
+          tar-ignore = ".github"
+          tar-ignore = "logo"
+          tar-ignore = "LICENSES"
+          tar-ignore = "CHANGELOG"
+          tar-ignore = "test"
+          EOF
+          
+          # Modify changelog
+          cat > changelog << EOF
+          ${{ inputs.component }} (${{ env.VERSION }}) noble; urgency=medium
+          
+            * Release ${{ env.VERSION }}.
+          
+           -- ${{ secrets.BOT_FULL_NAME }} <${{ secrets.BOT_EMAIL }}>  $(date -R)
+          EOF
+
+          # Modify docs
+          rm README.source
+          rm README.Debian
+          cat > ${{ inputs.component }}-docs.docs << EOF
+          README
+          EOF
+          
+          # Modify control file
+          sed -i 's/^Section: .*/Section: utils/' control
+          sed -i '/^Build-Depends:/ { /rsync/! s/$/, rsync/ }' control
+          sed -i '/^Homepage:/d' control
+          sed -i '/^#Vcs-Browser:/d' control
+          sed -i '/^#Vcs-Git:/d' control
+          sed -i "s/^Description: .*/Description: ${{ inputs.component }}_${{ env.VERSION }}/" control
+          sed -i "s/^ <insert long description, indented with spaces>/ ${{ inputs.component }}_${{ env.VERSION }}/" control
+
+          # Modify copyright file
+          sed -i "s/^Upstream-Contact: .*/Upstream-Contact: https:\/\/ubuntu.com\/kubernetes/" copyright
+          sed -i "s/^Source: .*/Source: https:\/\/documentation.ubuntu.com\/canonical-kubernetes\/latest/" copyright
+          sed -i "s/^Copyright: .*/Copyright: $(date +'%Y') ${{ secrets.BOT_FULL_NAME}} <${{ secrets.BOT_EMAIL }}>/" copyright
+          sed -i '/^[[:space:]]*<years> <likewise for another author>/d' copyright
+        shell: bash
+      
+      - name: Configure build system
+        working-directory: ${{ env.WORKSPACE }}/kubernetes
+        run: |
+          # Save original Makefile
+          git mv Makefile Makefile.original
+          
+          # Create simplified Makefile for package building
+          cat > Makefile << EOF
+          BINARY := ${{ inputs.component }}
+          WHAT := cmd/\${BINARY}
+          KUBE_STATIC_OVERRIDES := \${BINARY}
+          BINDIR := /usr/bin
+          DEB_DIR := \${CURDIR}/debian
+          GO_ROOT := \${DEB_DIR}/go
+          OUT_DIR := \${CURDIR}/_output
+
+          all:
+              make -f Makefile.original WHAT="\${WHAT}" KUBE_STATIC_OVERRIDES="\${KUBE_STATIC_OVERRIDES}" GOFLAGS="-buildvcs=false" KUBE_GOPATH=\${GO_ROOT}
+
+          install:
+              mkdir -p \${DESTDIR}\${BINDIR}
+              cp \${OUT_DIR}/bin/\${BINARY} \${DESTDIR}\${BINDIR}/
+          EOF
+        shell: bash
+      
+      - name: Vendor Go runtime
+        working-directory: ${{ env.WORKSPACE }}/kubernetes
+        run: |
+          echo "Extracting Go version from go.mod"
+          GO_VERSION=$(grep '^go [0-9]\+\.[0-9]\+\.[0-9]\+$' go.mod | awk '{print $2}')
+          
+          echo "Downloading Go ${GO_VERSION}"
+          cd debian
+          wget --progress=dot:giga https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz
+          
+          echo "Extracting Go runtime"
+          tar xf go${GO_VERSION}.linux-amd64.tar.gz
+          rm go${GO_VERSION}.linux-amd64.tar.gz
+        shell: bash
+
+      - name: Ignore unnecessary files
+        working-directory: ${{ env.WORKSPACE }}/kubernetes
+        run: |
+          echo "Updating .gitignore"
+          echo "debian/go" >> .gitignore
+          echo "debian/files" >> .gitignore
+          echo "debian/go[0-9]*.[0-9]*.[0-9]*.tar.gz" >> .gitignore
+        shell: bash
+      
+      - name: Build source package
+        working-directory: ${{ env.WORKSPACE }}/kubernetes
+        run: |
+          echo "Building source package for ${{ inputs.component }}_${{ env.VERSION }}"
+          LOG_FILE="/tmp/debuild_${{ inputs.component }}_${{ env.VERSION }}.log"
+          echo "LOG_FILE=${LOG_FILE}" >> $GITHUB_ENV
+          
+          if ! debuild --no-tgz-check -S -k${{ secrets.BOT_GPG_KEY }} | tee "${LOG_FILE}" 2>&1; then
+            echo "::error::Failed to build source package"
+            cat "${LOG_FILE}"
+            exit 1
+          fi
+        shell: bash
+      
+      - name: Upload to PPA
+        working-directory: ${{ env.WORKSPACE }}
+        run: |
+          PPA_NAME="${{ secrets.LP_ACCOUNT }}/${{ inputs.component }}_${{ env.MAJ_MIN }}"
+          
+          CHANGES_FILE="${{ inputs.component }}_${{ env.VERSION }}_source.changes"
+          if [ ! -f "${CHANGES_FILE}" ]; then
+            echo "::error::Changes file not found: ${CHANGES_FILE}"
+            ls -la
+            exit 1
+          fi
+          
+          if [ "${{ inputs.dry-run }}" = "true" ]; then
+            echo "Dry run mode enabled. Not uploading to PPA."
+            exit 0
+          fi
+
+          echo "Uploading package to PPA: ${PPA_NAME}"
+          dput ${PPA_NAME} ${CHANGES_FILE}
+        shell: bash
+      
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.component }}_${{ env.VERSION }}_logs
+          path: ${{ env.LOG_FILE }}
