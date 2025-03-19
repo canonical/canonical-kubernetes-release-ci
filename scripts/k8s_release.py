@@ -84,7 +84,7 @@ def _branch_exists(
     if remote:
         cmd += ["-r"]
 
-    stdout, stderr = util.execute(cmd, cwd=project_basedir)
+    _, stdout, stderr = util.execute(cmd, cwd=project_basedir)
     return branch_name in stdout
 
 

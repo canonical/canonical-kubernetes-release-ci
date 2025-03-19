@@ -42,7 +42,9 @@ def ensure_snap_channels(
     # The channels (e.g. latest/edge/classic) will be opened automatically.
     # Ensure each track is tested only once.
     unique_tracks = {channel.split("/")[0] for channel in channels}
-    LOG.info("Ensure snap tracks %s for ver %s in snapstore", ",".join(unique_tracks), ver)
+    LOG.info(
+        "Ensure snap tracks %s for ver %s in snapstore", ",".join(unique_tracks), ver
+    )
     for track in unique_tracks:
         if not dry_run:
             snapstore.ensure_track(util.SNAP_NAME, track)
@@ -63,8 +65,10 @@ def ensure_lp_recipe(
     recipe_name = util.recipe_name(flavour, ver, tip)
 
     if flavour == "strict":
-        LOG.warning("Disabling snap auto-build for 'strict' flavor, which is "
-                    "currently unsupported.")
+        LOG.warning(
+            "Disabling snap auto-build for 'strict' flavor, which is "
+            "currently unsupported."
+        )
         auto_build = False
     else:
         auto_build = True

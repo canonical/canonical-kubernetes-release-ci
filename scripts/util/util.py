@@ -3,7 +3,7 @@ import logging
 import re
 import subprocess
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import semver
 import util.repo as repo
@@ -57,7 +57,9 @@ def setup_arguments(arg_parser: argparse.ArgumentParser):
     return args
 
 
-def execute(cmd: List[str], check=True, timeout=EXEC_TIMEOUT, cwd=None):
+def execute(
+    cmd: List[str], check=True, timeout: Optional[int] = EXEC_TIMEOUT, cwd=None
+):
     """Run the specified command and return the stdout/stderr output as a tuple."""
     LOG.debug("Executing: %s, cwd: %s.", cmd, cwd)
     proc = subprocess.run(

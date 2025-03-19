@@ -1,0 +1,13 @@
+Source: {{ component }}
+Section: {{ section }}
+Priority: {{ priority }}
+Maintainer: {{ maintainer_name }} <{{ maintainer_email }}>
+Build-Depends: debhelper-compat (= 13), rsync
+Standards-Version: 4.6.0
+Rules-Requires-Root: no
+
+Package: {{ component }}
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: {{ description_short }}
+ {{ description_long }}

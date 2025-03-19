@@ -1,0 +1,14 @@
+BINARY := "{{ component }}"
+WHAT := "cmd/${BINARY}"
+KUBE_STATIC_OVERRIDES := "${BINARY}"
+BINDIR := /usr/bin
+DEB_DIR := "${CURDIR}/debian"
+GO_ROOT := "${DEB_DIR}/go"
+OUT_DIR := "${CURDIR}/_output"
+
+all:
+	make -f Makefile.original WHAT="${WHAT}" KUBE_STATIC_OVERRIDES="${KUBE_STATIC_OVERRIDES}" GOFLAGS="-buildvcs=false" KUBE_GOPATH="${GO_ROOT}"
+
+install:
+	mkdir -p "${DESTDIR}${BINDIR}"
+	cp "${OUT_DIR}/bin/${BINARY}" "${DESTDIR}${BINDIR}/"
