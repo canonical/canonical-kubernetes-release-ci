@@ -47,13 +47,18 @@ jobs:
 
       - name: Set version variable
         run: |
+          # Example: v1.32.3 -> 1.32.3
           K8S_VERSION=$(echo ${{ inputs.tag }} | sed 's/v//')
-          VERSION=$K8S_VERSION-${{ inputs.version-postfix }}
+          VERSION="$K8S_VERSION-${{ inputs.version-postfix }}"
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           
           # For PPA naming, extract major.minor version
+          # Example: v1.32.3 -> 1.32
           MAJ_MIN=$(echo ${{ inputs.tag }} | sed 's/\(v\{0,1\}[0-9]\+\.[0-9]\+\)\.[0-9]*/\1/')
           echo "MAJ_MIN=${MAJ_MIN}" >> $GITHUB_ENV
+
+          # Obtain Ubuntu codename, e.g. "noble"
+          source /etc/os-release && echo "UBUNTU_CODENAME=${VERSION_CODENAME}" >> $GITHUB_ENV
           
           echo "Set version: ${VERSION}"
           echo "Set major.minor: ${MAJ_MIN}"
@@ -62,16 +67,14 @@ jobs:
         working-directory: ${{ env.WORKSPACE }}
         run: |
           echo "Cloning Kubernetes repo at tag ${{ inputs.tag }}"
-          git clone --depth 1 --branch ${{ inputs.tag }} git@github.com:kubernetes/kubernetes.git
+          git clone --depth 1 --branch "${{ inputs.tag }}" https://github.com/kubernetes/kubernetes.git
           cd kubernetes
-          git switch -c ${{ inputs.component }}_${{ env.VERSION }}_deb
-        shell: bash
+          git switch -c "${{ inputs.component }}_${{ env.VERSION }}_deb"
       
       - name: Install build dependencies
         run: |
           sudo apt update
           sudo apt install -y devscripts debhelper dh-make build-essential
-        shell: bash
       
       - name: Create Debian package structure
         working-directory: ${{ env.WORKSPACE }}/kubernetes
@@ -79,11 +82,10 @@ jobs:
           DEBFULLNAME: ${{ secrets.BOT_FULL_NAME }}
         run: |
           echo "Creating Debian package structure for ${{ inputs.component }}_${{ env.VERSION }}"
-          dh_make -p ${{ inputs.component }}_${{ env.VERSION }} --single --native --copyright ${{ inputs.copyright }} --email ${{ secrets.BOT_EMAIL }} -y
+          dh_make -p "${{ inputs.component }}_${{ env.VERSION }}" --single --native --copyright "${{ inputs.copyright }}" --email "${{ secrets.BOT_EMAIL }}" -y
           
           # Remove example files
           find debian -name "*.ex" -o -name "*.EX" | xargs -I{} rm {}
-        shell: bash
       
       - name: Configure package metadata
         working-directory: ${{ env.WORKSPACE }}/kubernetes/debian
@@ -101,7 +103,7 @@ jobs:
           
           # Modify changelog
           cat > changelog << EOF
-          ${{ inputs.component }} (${{ env.VERSION }}) noble; urgency=medium
+          ${{ inputs.component }} (${{ env.VERSION }}) ${{ env.UBUNTU_CODENAME }}; urgency=medium
           
             * Release ${{ env.VERSION }}.
           
@@ -129,7 +131,6 @@ jobs:
           sed -i "s/^Source: .*/Source: https:\/\/documentation.ubuntu.com\/canonical-kubernetes\/latest/" copyright
           sed -i "s/^Copyright: .*/Copyright: $(date +'%Y') ${{ secrets.BOT_FULL_NAME}} <${{ secrets.BOT_EMAIL }}>/" copyright
           sed -i '/^[[:space:]]*<years> <likewise for another author>/d' copyright
-        shell: bash
       
       - name: Configure build system
         working-directory: ${{ env.WORKSPACE }}/kubernetes
@@ -139,22 +140,21 @@ jobs:
           
           # Create simplified Makefile for package building
           cat > Makefile << EOF
-          BINARY := ${{ inputs.component }}
-          WHAT := cmd/\${BINARY}
-          KUBE_STATIC_OVERRIDES := \${BINARY}
+          BINARY := "${{ inputs.component }}"
+          WHAT := "cmd/\${BINARY}"
+          KUBE_STATIC_OVERRIDES := "\${BINARY}"
           BINDIR := /usr/bin
-          DEB_DIR := \${CURDIR}/debian
-          GO_ROOT := \${DEB_DIR}/go
-          OUT_DIR := \${CURDIR}/_output
+          DEB_DIR := "\${CURDIR}/debian"
+          GO_ROOT := "\${DEB_DIR}/go"
+          OUT_DIR := "\${CURDIR}/_output"
 
           all:
-              make -f Makefile.original WHAT="\${WHAT}" KUBE_STATIC_OVERRIDES="\${KUBE_STATIC_OVERRIDES}" GOFLAGS="-buildvcs=false" KUBE_GOPATH=\${GO_ROOT}
+              make -f Makefile.original WHAT="\${WHAT}" KUBE_STATIC_OVERRIDES="\${KUBE_STATIC_OVERRIDES}" GOFLAGS="-buildvcs=false" KUBE_GOPATH="\${GO_ROOT}"
 
           install:
-              mkdir -p \${DESTDIR}\${BINDIR}
-              cp \${OUT_DIR}/bin/\${BINARY} \${DESTDIR}\${BINDIR}/
+              mkdir -p "\${DESTDIR}\${BINDIR}"
+              cp "\${OUT_DIR}/bin/\${BINARY}" "\${DESTDIR}\${BINDIR}/"
           EOF
-        shell: bash
       
       - name: Vendor Go runtime
         working-directory: ${{ env.WORKSPACE }}/kubernetes
@@ -164,12 +164,11 @@ jobs:
           
           echo "Downloading Go ${GO_VERSION}"
           cd debian
-          wget --progress=dot:giga https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz
+          wget --progress=dot:giga "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
           
           echo "Extracting Go runtime"
-          tar xf go${GO_VERSION}.linux-amd64.tar.gz
-          rm go${GO_VERSION}.linux-amd64.tar.gz
-        shell: bash
+          tar xf "go${GO_VERSION}.linux-amd64.tar.gz"
+          rm "go${GO_VERSION}.linux-amd64.tar.gz"
 
       - name: Ignore unnecessary files
         working-directory: ${{ env.WORKSPACE }}/kubernetes
@@ -178,7 +177,6 @@ jobs:
           echo "debian/go" >> .gitignore
           echo "debian/files" >> .gitignore
           echo "debian/go[0-9]*.[0-9]*.[0-9]*.tar.gz" >> .gitignore
-        shell: bash
       
       - name: Build source package
         working-directory: ${{ env.WORKSPACE }}/kubernetes
@@ -192,7 +190,6 @@ jobs:
             cat "${LOG_FILE}"
             exit 1
           fi
-        shell: bash
       
       - name: Upload to PPA
         working-directory: ${{ env.WORKSPACE }}
@@ -212,8 +209,7 @@ jobs:
           fi
 
           echo "Uploading package to PPA: ${PPA_NAME}"
-          dput ${PPA_NAME} ${CHANGES_FILE}
-        shell: bash
+          dput "${PPA_NAME}" "${CHANGES_FILE}"
       
       - name: Upload build logs
         if: always()
