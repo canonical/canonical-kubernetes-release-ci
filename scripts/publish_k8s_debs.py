@@ -16,9 +16,6 @@ from util.repo import clone
 from util.util import execute, setup_arguments
 
 LOG = logging.getLogger(__name__)
-USAGE = f"./{Path(__file__).name} [options]"
-DESCRIPTION = """Build and publish Debian package for a Kubernetes component."""
-
 
 def _get_ubuntu_codename() -> str:
     """Get the Ubuntu codename from /etc/os-release."""
@@ -38,27 +35,27 @@ class Credentials(BaseModel):
     bot_email: str
     bot_lp_account: str
 
-
-def _get_creds_from_env() -> Credentials:
-    """Get credentials from environment variables."""
-    bot_gpg_key = os.getenv("BOT_GPG_KEY")
-    if not bot_gpg_key:
-        raise ValueError("BOT_GPG_KEY environment variable is not set")
-    bot_full_name = os.getenv("BOT_FULL_NAME")
-    if not bot_full_name:
-        raise ValueError("BOT_FULL_NAME environment variable is not set")
-    bot_email = os.getenv("BOT_EMAIL")
-    if not bot_email:
-        raise ValueError("BOT_EMAIL environment variable is not set")
-    bot_lp_account = os.getenv("BOT_LP_ACCOUNT")
-    if not bot_lp_account:
-        raise ValueError("BOT_LP_ACCOUNT environment variable is not set")
-    return Credentials(
-        bot_gpg_key=SecretStr(bot_gpg_key),
-        bot_full_name=bot_full_name,
-        bot_email=bot_email,
-        bot_lp_account=bot_lp_account,
-    )
+    @classmethod
+    def _get_creds_from_env(cls) -> "Credentials":
+        """Get credentials from environment variables."""
+        bot_gpg_key = os.getenv("BOT_GPG_KEY")
+        if not bot_gpg_key:
+            raise ValueError("BOT_GPG_KEY environment variable is not set")
+        bot_full_name = os.getenv("BOT_FULL_NAME")
+        if not bot_full_name:
+            raise ValueError("BOT_FULL_NAME environment variable is not set")
+        bot_email = os.getenv("BOT_EMAIL")
+        if not bot_email:
+            raise ValueError("BOT_EMAIL environment variable is not set")
+        bot_lp_account = os.getenv("BOT_LP_ACCOUNT")
+        if not bot_lp_account:
+            raise ValueError("BOT_LP_ACCOUNT environment variable is not set")
+        return cls(
+            bot_gpg_key=SecretStr(bot_gpg_key),
+            bot_full_name=bot_full_name,
+            bot_email=bot_email,
+            bot_lp_account=bot_lp_account,
+        )
 
 
 class K8sDebManager:
@@ -69,11 +66,8 @@ class K8sDebManager:
         repo_tag: str,
         component: str,
         version_postfix: str,
-        bot_gpg_key: SecretStr,
-        bot_full_name: str,
-        bot_email: str,
+        creds: Credentials,
         dry_run: bool,
-        bot_lp_account: str,
     ):
         self._jinja_env = Environment(
             # NOTE(Hue): We need to start the path with `scripts` because
@@ -82,19 +76,14 @@ class K8sDebManager:
             autoescape=select_autoescape(),
         )
 
-        # Repo
         self._repo_tag = repo_tag
-
-        # Component deb build
         self._component = component
         self._version_postfix = version_postfix
-        self._bot_gpg_key = bot_gpg_key
-        self._bot_full_name = bot_full_name
-        self._bot_email = bot_email
-
-        # PPA upload
+        self._bot_gpg_key = creds.bot_gpg_key
+        self._bot_full_name = creds.bot_full_name
+        self._bot_email = creds.bot_email
         self._dry_run = dry_run
-        self._bot_lp_account = bot_lp_account
+        self._bot_lp_account = creds.bot_lp_account
 
     @property
     def _debian_dir(self) -> Path:
@@ -386,7 +375,8 @@ class K8sDebManager:
 
 def main():
     arg_parser = argparse.ArgumentParser(
-        Path(__file__).name, usage=USAGE, description=DESCRIPTION
+        Path(__file__).name, 
+        description="Build and publish Debian package for a Kubernetes component.",
     )
     arg_parser.add_argument("component", help="Component name, e.g., kubeadm")
     arg_parser.add_argument(
@@ -395,20 +385,12 @@ def main():
     arg_parser.add_argument("--version-postfix", required=True, help="Version postfix")
     args = setup_arguments(arg_parser)
 
-    creds = _get_creds_from_env()
-
     deb_manager = K8sDebManager(
-        # Repo
         repo_tag=args.tag,
-        # Component deb build
         component=args.component,
         version_postfix=args.version_postfix,
-        bot_gpg_key=creds.bot_gpg_key,
-        bot_full_name=creds.bot_full_name,
-        bot_email=creds.bot_email,
-        # PPA upload
+        creds=Credentials._get_creds_from_env(),
         dry_run=args.dry_run,
-        bot_lp_account=creds.bot_lp_account,
     )
 
     deb_manager.run()

@@ -26,10 +26,6 @@ jobs:
       CHARMCRAFT_AUTH : ${{ secrets.CHARMCRAFT_AUTH }}
       LPCREDS_B64: ${{ secrets.LP_CREDS }}
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
       - name: Checking out repo
         uses: actions/checkout@v4
       - name: Setup Python
