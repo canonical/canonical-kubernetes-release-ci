@@ -77,10 +77,10 @@ jobs:
       - name: Build and publish
         if: github.event_name == 'pull_request'
         env:
-          BOT_GPG_KEY: "${{ secrets.BOT_GPG_KEY | 'SuperSecureGPGKey' }}"
-          BOT_FULL_NAME: "${{ secrets.BOT_FULL_NAME | 'Nobody Knows' }}"
-          BOT_EMAIL: "${{ secrets.BOT_EMAIL | 'nobody@nowhere.bye' }}"
-          BOT_LP_ACCOUNT: "${{ secrets.BOT_LP_ACCOUNT | 'random_account' }}"
+          BOT_GPG_KEY: "${{ secrets.BOT_GPG_KEY || 'SuperSecureGPGKey' }}"
+          BOT_FULL_NAME: "${{ secrets.BOT_FULL_NAME || 'Nobody Knows' }}"
+          BOT_EMAIL: "${{ secrets.BOT_EMAIL || 'nobody@nowhere.bye' }}"
+          BOT_LP_ACCOUNT: "${{ secrets.BOT_LP_ACCOUNT || 'random_account' }}"
         run: |
           ./scripts/publish_k8s_debs.py \
             kubeadm \
