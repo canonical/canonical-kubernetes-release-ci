@@ -6,3 +6,6 @@ skips = ["B404","B603"]
 ignore_missing_imports = true
 explicit_package_bases = true
 namespace_packages = true
+
+[tool.codespell]
+skip = "env"
