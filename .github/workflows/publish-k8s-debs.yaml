@@ -61,7 +61,6 @@ jobs:
           sudo apt update
           sudo apt install -y devscripts debhelper dh-make build-essential
       - name: Build and publish
-        if: github.event_name == 'workflow_dispatch'
         env:
           BOT_GPG_KEY: "${{ secrets.BOT_GPG_KEY }}"
           BOT_FULL_NAME: "${{ secrets.BOT_FULL_NAME }}"
@@ -74,17 +73,3 @@ jobs:
             --tag "${{ inputs.tag }}" \
             --version-postfix "${{ inputs.version-postfix }}" \
             --log "${{ inputs.log-level }}"
-      - name: Build and publish
-        if: github.event_name == 'pull_request'
-        env:
-          BOT_GPG_KEY: "${{ secrets.BOT_GPG_KEY || 'SuperSecureGPGKey' }}"
-          BOT_FULL_NAME: "${{ secrets.BOT_FULL_NAME || 'Nobody Knows' }}"
-          BOT_EMAIL: "${{ secrets.BOT_EMAIL || 'nobody@nowhere.bye' }}"
-          BOT_LP_ACCOUNT: "${{ secrets.BOT_LP_ACCOUNT || 'random_account' }}"
-        run: |
-          ./scripts/publish_k8s_debs.py \
-            kubeadm \
-            --dry-run \
-            --tag v1.32.3 \
-            --version-postfix build1 \
-            --log DEBUG
