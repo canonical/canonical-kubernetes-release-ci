@@ -322,15 +322,13 @@ def release_revision(args):
 
 
 def execute_proposal_test(args):
-    branches = {args.branch, "main"}  # branch choices
     cmd = f"{TOX_PATH} -e integration -- -k test_version_upgrades"
 
-    for branch in branches:
-        with repo.clone(util.SNAP_REPO, branch) as dir:
-            if repo.ls_tree(dir, "tests/integration/tests/test_version_upgrades.py"):
-                LOG.info("Running integration tests for %s", branch)
-                subprocess.run(cmd.split(), cwd=dir / "tests/integration", check=True)
-                return
+    with repo.clone(util.SNAP_REPO, args.branch) as dir:
+        if repo.ls_tree(dir, "tests/integration/tests/test_version_upgrades.py"):
+            LOG.info("Running integration tests for %s", args.branch)
+            subprocess.run(cmd.split(), cwd=dir / "tests/integration", check=True)
+            return
 
 
 def main():
