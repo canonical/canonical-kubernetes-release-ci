@@ -81,7 +81,7 @@ def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
 def _mock_k8s_versions(latest_stable: str = "v1.33.0"):
     with (
         mock.patch(
-            "k8s_release.get_latest_stable", new=mock.Mock(return_value=latest_stable)
+            "util.k8s.get_latest_stable", new=mock.Mock(return_value=latest_stable)
         ),
     ):
         yield

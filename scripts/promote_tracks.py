@@ -14,8 +14,8 @@ from functools import cached_property
 from pathlib import Path
 from typing import Optional
 
-import k8s_release
 import util.gh as gh
+import util.k8s as k8s
 import util.lp as lp
 import util.repo as repo
 import util.snapstore as snapstore
@@ -191,7 +191,7 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
     def sorter(info: Channel):
         return (info.name, RISK_LEVELS.index(info.risk))
 
-    latest_upstream_stable = k8s_release.get_latest_stable()
+    latest_upstream_stable = k8s.get_latest_stable()
     for channel_info in sorted(channels.values(), key=sorter, reverse=True):
         track = channel_info.channel.track
         risk = channel_info.risk
@@ -292,7 +292,7 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
                     proposals.append(proposal)
                 continue
 
-            if not k8s_release.is_stable_release(k8s_version):
+            if not k8s.is_stable_release(k8s_version):
                 chan_log.info(
                     f"{track}/{risk} contains pre-release: {k8s_version}, "
                     "automatic promotion disabled."

@@ -14,11 +14,10 @@ permissions:
 
 jobs:
   determine:
-    name: "Determine k8s pre-release"
+    name: "Determine k8s pre-releases"
     runs-on: ubuntu-latest
     outputs:
-      preRelease: ${{ steps.determine.outputs.preRelease }}
-      gitBranch: ${{ steps.determine.outputs.gitBranch }}
+      gitBranches: ${{ steps.determine.outputs.gitBranches }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -33,27 +32,23 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-      - name: Install Python dependencies
-        shell: bash
-        run: pip3 install -r ./scripts/requirements.txt
-      - name: Determine outstanding pre-release
+      - run: pip install tox
+      - name: Determine outstanding pre-releases
         id: determine
         run: |
-          preRelease=`python3 ./scripts/k8s_release.py get_outstanding_prerelease`
-          echo "preRelease=$preRelease" >> "$GITHUB_OUTPUT"
-
-          if [[ -n "$preRelease" ]]; then
-            gitBranch=`python3 ./scripts/k8s_release.py get_prerelease_git_branch --prerelease $preRelease`
-          fi
-          echo "gitBranch=$gitBranch" >> "$GITHUB_OUTPUT"
-  handle-pre-release:
-    name: Handle pre-release ${{ needs.determine.outputs.preRelease }}
+          gitBranches=`tox -qq -e release -- get_outstanding_prereleases --as-git-branch`
+          echo "gitBranches=$gitBranches" >> "$GITHUB_OUTPUT"
+  handle-pre-releases:
+    name: Handle pre-releases
     needs: [determine]
-    secrets: inherit
+    if: ${{ needs.determine.outputs.preReleases != '' }}
+    strategy:
+      matrix:
+        branch: ${{ fromJson('["' + join('","', split(needs.determine.outputs.gitBranches, '\n')) + '"]') }}
     uses: ./.github/workflows/create-release-branch.yaml
-    if: ${{ needs.determine.outputs.preRelease }} != ''
+    secrets: inherit
     with:
-      branches: ${{ needs.determine.outputs.gitBranch }}
+      branches: ${{ matrix.branch }}
   clean-obsolete:
     runs-on: ubuntu-latest
     env:

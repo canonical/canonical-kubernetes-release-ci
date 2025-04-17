@@ -1,91 +1,54 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
 import logging
 import re
-from typing import List, Optional
+from typing import List
 
-import requests
-import util.util as util
+import util.k8s as k8s
 from packaging.version import Version
-
-K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags"
 
 LOG = logging.getLogger(__name__)
 
 
-def _url_get(url: str) -> str:
-    r = requests.get(url, timeout=5)
-    r.raise_for_status()
-    return r.text
+def get_outstanding_prereleases(as_git_branch: bool = False) -> List[str]:
+    """Return outstanding K8s pre-releases.
 
+    Args:
+        as_git_branch: If True, return the git branch name for the pre-release.
+    """
+    latest_release = k8s.get_latest_releases_by_minor()
+    prereleases = []
+    for tag in latest_release.values():
+        if not k8s.is_stable_release(tag):
+            prereleases.append(tag)
 
-def get_k8s_tags() -> List[str]:
-    """Retrieve semantically ordered k8s releases, newest to oldest."""
-    response = _url_get(K8S_TAGS_URL)
-    tags_json = json.loads(response)
-    if len(tags_json) == 0:
-        raise ValueError("No k8s tags retrieved.")
-    tag_names = [tag["name"] for tag in tags_json]
-    # Github already sorts the tags semantically but let's not rely on that.
-    tag_names.sort(key=lambda x: Version(x), reverse=True)
-    return tag_names
+    if as_git_branch:
+        return [get_prerelease_git_branch(tag) for tag in prereleases]
 
-
-# k8s release naming:
-# * alpha:  v{major}.{minor}.{patch}-alpha.{version}
-# * beta:   v{major}.{minor}.{patch}-beta.{version}
-# * rc:     v{major}.{minor}.{patch}-rc.{version}
-# * stable: v{major}.{minor}.{patch}
-def is_stable_release(release: str):
-    return "-" not in release
-
-
-def get_latest_stable() -> str:
-    k8s_tags = get_k8s_tags()
-    for tag in k8s_tags:
-        if is_stable_release(tag):
-            return tag
-    raise ValueError("Couldn't find stable release, received tags: %s" % k8s_tags)
-
-
-def get_latest_release() -> str:
-    k8s_tags = get_k8s_tags()
-    return k8s_tags[0]
-
-
-def get_outstanding_prerelease() -> Optional[str]:
-    latest_release = get_latest_release()
-    if not is_stable_release(latest_release):
-        return latest_release
-    # The latest release is a stable release, no outstanding pre-release.
-    return None
+    return prereleases
 
 
 def get_obsolete_prereleases() -> List[str]:
     """Return obsolete K8s pre-releases.
 
-    We only keep the latest pre-release if there is no corresponding stable
+    We only keep the latest pre-release(s) if there is no corresponding stable
     release. All previous pre-releases are discarded.
     """
-    k8s_tags = get_k8s_tags()
-    if not is_stable_release(k8s_tags[0]):
-        # Valid pre-release
-        k8s_tags = k8s_tags[1:]
-    # Discard all other pre-releases.
-    return [tag for tag in k8s_tags if not is_stable_release(tag)]
+    k8s_tags = k8s.get_k8s_tags()
+    seen_stable_minors = set()
+    obsolete = []
 
+    for tag in k8s_tags:
+        if k8s.is_stable_release(tag):
+            version = Version(tag.lstrip("v"))
+            seen_stable_minors.add((version.major, version.minor))
+        else:
+            version = Version(tag.lstrip("v").split("-")[0])
+            if (version.major, version.minor) in seen_stable_minors:
+                obsolete.append(tag)
 
-def _branch_exists(
-    branch_name: str, remote=True, project_basedir: Optional[str] = None
-):
-    cmd = ["git", "branch"]
-    if remote:
-        cmd += ["-r"]
-
-    _, stdout, stderr = util.execute(cmd, cwd=project_basedir)
-    return branch_name in stdout
+    return obsolete
 
 
 def get_prerelease_git_branch(prerelease: str):
@@ -117,14 +80,19 @@ if __name__ == "__main__":
         help="The upstream k8s pre-release.",
     )
 
-    subparsers.add_parser("get_outstanding_prerelease")
+    cmd = subparsers.add_parser("get_outstanding_prereleases")
+    cmd.add_argument(
+        "--as-git-branch",
+        dest="as_git_branch",
+        help="If set, returns the git branch name of the pre-release instead of the tag.",
+        action="store_true",
+    )
     subparsers.add_parser("remove_obsolete_prereleases")
 
     kwargs = vars(parser.parse_args())
     f = locals()[kwargs.pop("subparser")]
     out = f(**kwargs)
     if isinstance(out, (list, tuple)):
-        for item in out:
-            print(item)
+        print(",".join(out))
     else:
         print(out or "")

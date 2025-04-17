@@ -17,6 +17,7 @@ from util.util import execute, setup_arguments
 
 LOG = logging.getLogger(__name__)
 
+
 def _get_ubuntu_codename() -> str:
     """Get the Ubuntu codename from /etc/os-release."""
     os_release_path = Path("/etc/os-release")
@@ -375,7 +376,7 @@ class K8sDebManager:
 
 def main():
     arg_parser = argparse.ArgumentParser(
-        Path(__file__).name, 
+        Path(__file__).name,
         description="Build and publish Debian package for a Kubernetes component.",
     )
     arg_parser.add_argument("component", help="Component name, e.g., kubeadm")
