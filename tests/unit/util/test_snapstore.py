@@ -44,19 +44,9 @@ def test_info_url_error(mock_get):
         snapstore.info("non-existent-snap")
 
 
-@patch("util.snapstore.track_exists", return_value=True)
 @patch("util.snapstore.create_track")
-def test_ensure_track_exists(mock_create_track, mock_track_exists):
+def test_ensure_track_create(mock_create_track):
     snapstore.ensure_track("test-snap", "test-track")
-    mock_track_exists.assert_called_once_with("test-snap", "test-track")
-    mock_create_track.assert_not_called()
-
-
-@patch("util.snapstore.track_exists", return_value=False)
-@patch("util.snapstore.create_track")
-def test_ensure_track_create(mock_create_track, mock_track_exists):
-    snapstore.ensure_track("test-snap", "test-track")
-    mock_track_exists.assert_called_once_with("test-snap", "test-track")
     mock_create_track.assert_called_once_with("test-snap", "test-track")
 
 
