@@ -41,10 +41,9 @@ jobs:
   handle-pre-releases:
     name: Handle pre-releases
     needs: [determine]
-    if: ${{ needs.determine.outputs.preReleases != '' }}
     strategy:
       matrix:
-        branch: ${{ fromJson('["' + join('","', split(needs.determine.outputs.gitBranches, '\n')) + '"]') }}
+          branch: ${{ fromJson(needs.determine.outputs.gitBranches) }}
     uses: ./.github/workflows/create-release-branch.yaml
     secrets: inherit
     with:

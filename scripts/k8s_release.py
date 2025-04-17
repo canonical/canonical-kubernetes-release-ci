@@ -92,7 +92,4 @@ if __name__ == "__main__":
     kwargs = vars(parser.parse_args())
     f = locals()[kwargs.pop("subparser")]
     out = f(**kwargs)
-    if isinstance(out, (list, tuple)):
-        print(",".join(out))
-    else:
-        print(out or "")
+    print(out or "")
