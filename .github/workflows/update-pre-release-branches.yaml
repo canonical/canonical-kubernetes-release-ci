@@ -23,10 +23,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ssh-key: ${{ secrets.BOT_SSH_KEY }}
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -48,28 +44,3 @@ jobs:
     secrets: inherit
     with:
       branches: ${{ matrix.branch }}
-  clean-obsolete:
-    runs-on: ubuntu-latest
-    env:
-      CHARMCRAFT_AUTH : ${{ secrets.CHARMCRAFT_AUTH }}
-      LPCREDS_B64: ${{ secrets.LP_CREDS }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ssh-key: ${{ secrets.BOT_SSH_KEY }}
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-      - name: Install Python dependencies
-        shell: bash
-        run: pip3 install -r ./scripts/requirements.txt
-      - name: Clean obsolete branches
-        run: |
-          python3 ./scripts/k8s_release.py remove_obsolete_prereleases

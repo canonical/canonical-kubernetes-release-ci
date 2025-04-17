@@ -23,29 +23,27 @@ def info(snap_name):
     return json.loads(r.text)
 
 
-def track_exists(snap_name: str, track_name: str) -> bool:
-    """Check if a track exists for a snap."""
-    snap_info = info(snap_name)
-    for channel_data in snap_info.get("channel-map", {}):
-        track = channel_data.get("channel", {}).get("track")
-        if track and track == track_name:
-            return True
-    return False
-
-
 def ensure_track(snap_name: str, track_name: str) -> None:
-    """Ensure a track exists for a snap. If it does not exist, create it."""
+    """Ensure a track exists for a snap.
+
+    The snap info does not contain non-populated tracks, so we need to
+    just try to create the track. If it already exists, we will get a
+    409 Conflict error, which we will ignore.
+    """
     LOG.info("Ensuring track: %s %s", snap_name, track_name)
-    if not track_exists(snap_name, track_name):
+    try:
         create_track(snap_name, track_name)
-    else:
-        LOG.info("Track already exists: %s %s", snap_name, track_name)
+        LOG.info("Track created: %s %s", snap_name, track_name)
+    except requests.HTTPError as e:
+        if e.response.status_code == 409:
+            # Track already exists
+            LOG.info("Track %s already exists for snap %s", track_name, snap_name)
+        else:
+            raise
 
 
 def create_track(snap_name: str, track_name: str) -> None:
     """Create a track for a snap. Throws an exception if the track already exists."""
-    LOG.info("Creating track: %s %s", snap_name, track_name)
-
     # Yes, the snap creation API is really at charmhub.io.
     # See https://juju.is/docs/sdk/create-a-track-for-your-charm#heading--self-service
     # For obvious reasons, we will keep this function in the snapstore module regardless.
