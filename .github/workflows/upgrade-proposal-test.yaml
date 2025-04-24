@@ -85,6 +85,7 @@ jobs:
           TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
           TEST_DEFAULT_WAIT_RETRIES: 200
           TEST_DEFAULT_WAIT_DELAY_S: 10
+          TEST_SKIP_CLEANUP: "1"
         run: |
           tox -e promote -- \
             ${{ inputs.dry_run && ' --dry-run' || '' }} \
