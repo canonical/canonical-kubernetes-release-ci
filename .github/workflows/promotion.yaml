@@ -1,5 +1,4 @@
 name: Promote tracks
-
 on:
   workflow_dispatch:
     inputs:
