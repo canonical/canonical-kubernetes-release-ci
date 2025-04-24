@@ -71,6 +71,7 @@ jobs:
         shell: bash
         run: |
           # note(ben): Temporary workaround until snapd/snapcraft issue is resolved.
+          export DEBIAN_FRONTEND=noninteractive
           sudo apt-get update
           sudo apt-get install xdelta3 --yes
 
@@ -95,9 +96,6 @@ jobs:
         shell: bash
         run: |
           set -x
-          ip a
-          ip r
-
           bridges=('lxdbr0' 'dualstack-br0' 'ipv6-br0')
           for i in ${bridges[@]}; do
             set +e
@@ -120,7 +118,6 @@ jobs:
           TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
           TEST_DEFAULT_WAIT_RETRIES: 200
           TEST_DEFAULT_WAIT_DELAY_S: 10
-          TEST_SKIP_CLEANUP: "1"
         run: |
           tox -e promote -- \
             ${{ inputs.dry_run && ' --dry-run' || '' }} \
@@ -139,7 +136,7 @@ jobs:
       - name: Debugging session
         if: ${{ failure() && github.event_name == 'pull_request' }}
         uses: canonical/action-tmate@main
-        timeout-minutes: 1000
+        timeout-minutes: 10
   promote-proposal:
     name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
