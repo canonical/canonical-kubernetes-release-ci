@@ -1,10 +1,6 @@
 name: Build and Publish A Kubernetes Component Debian Package
 
 on:
-  pull_request:
-    paths:
-      - .github/workflows/publish-k8s-debs.yaml
-      - scripts/publish_k8s_debs.py
   workflow_dispatch:
     inputs:
       component:
@@ -84,5 +80,5 @@ jobs:
           --version-postfix "${{ inputs.version-postfix }}" \
           ${{ inputs.dry-run && '--dry-run' || '' }} \
           ${{ inputs.stable-ppa && '--stable-ppa' || '' }} \
-          ${{ (inputs.log-level != '' && format('-l {0}', inputs.log-level)) || '' }} \
+          -l "${{ inputs.log-level }}" \
           "${{ inputs.component }}"
