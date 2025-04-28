@@ -1,8 +1,6 @@
 name: Build and Publish A Kubernetes Component Debian Package
 
 on:
-  pull_request:
-
   workflow_dispatch:
     inputs:
       component:
@@ -76,16 +74,11 @@ jobs:
           DEBS_FULL_NAME: "${{ secrets.DEBS_FULL_NAME }}"
           DEBS_EMAIL: "${{ secrets.DEBS_EMAIL }}"
           DEBS_LP_ACCOUNT: "${{ secrets.DEBS_LP_ACCOUNT }}"
-        # run: |
-        #   ./scripts/publish_k8s_debs.py \
-        #   --tag "${{ inputs.tag }}" \
-        #   --version-postfix "${{ inputs.version-postfix }}" \
-        #   ${{ inputs.dry-run && '--dry-run' || '' }} \
-        #   ${{ inputs.stable-ppa && '--stable-ppa' || '' }} \
-        #   -l "${{ inputs.log-level }}" \
-        #   "${{ inputs.component }}"
         run: |
           ./scripts/publish_k8s_debs.py \
-          --tag v1.33.0 \
-          --version-postfix 7 \
-          kubeadm
+          --tag "${{ inputs.tag }}" \
+          --version-postfix "${{ inputs.version-postfix }}" \
+          ${{ inputs.dry-run && '--dry-run' || '' }} \
+          ${{ inputs.stable-ppa && '--stable-ppa' || '' }} \
+          -l "${{ inputs.log-level }}" \
+          "${{ inputs.component }}"
