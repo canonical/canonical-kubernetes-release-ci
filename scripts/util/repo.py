@@ -15,7 +15,10 @@ def _parse_output(*args, **kwargs) -> str:
 
 @contextlib.contextmanager
 def clone(
-    repo_url: str, repo_tag: str | None = None, shallow: bool = True
+    repo_url: str,
+    repo_tag: str | None = None,
+    shallow: bool = True,
+    base_dir: str | None = None,
 ) -> Generator[Path, Any, Any]:
     """
     Clone a git repository on a temporary directory and return the directory.
@@ -28,7 +31,7 @@ def clone(
     ```
     """
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory(dir=base_dir) as tmpdir:
         cmd = ["git", "clone", repo_url, tmpdir]
         if repo_tag:
             cmd.extend(["-b", repo_tag])

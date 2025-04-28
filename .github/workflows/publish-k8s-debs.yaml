@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/publish-k8s-debs.yaml
+      - scripts/publish_k8s_debs.py
   workflow_dispatch:
     inputs:
       component:
@@ -35,6 +36,11 @@ on:
         required: true
         type: string
         default: DEBUG
+      stable-ppa:
+        description: "Upload to stable PPA (true/false). If true, the package will be uploaded to the stable PPA."
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -59,17 +65,24 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt update
-          sudo apt install -y devscripts debhelper dh-make build-essential
+          sudo apt install -y devscripts debhelper dh-make build-essential gnupg dput lintian
+      - name: Import GPG key
+        run: |
+          echo "${{ secrets.DEBS_GPG_KEY_PUBLIC_BACKUP }}" > gpg_public.key
+          echo "${{ secrets.DEBS_GPG_KEY_PRIVATE_BACKUP }}" > gpg_private.key
+          gpg --import gpg_public.key
+          gpg --import gpg_private.key
       - name: Build and publish
         env:
-          BOT_GPG_KEY: "${{ secrets.BOT_GPG_KEY }}"
-          BOT_FULL_NAME: "${{ secrets.BOT_FULL_NAME }}"
-          BOT_EMAIL: "${{ secrets.BOT_EMAIL }}"
-          BOT_LP_ACCOUNT: "${{ secrets.BOT_LP_ACCOUNT }}"
+          DEBS_GPG_KEY: "${{ secrets.DEBS_GPG_KEY }}"
+          DEBS_FULL_NAME: "${{ secrets.DEBS_FULL_NAME }}"
+          DEBS_EMAIL: "${{ secrets.DEBS_EMAIL }}"
+          DEBS_LP_ACCOUNT: "${{ secrets.DEBS_LP_ACCOUNT }}"
         run: |
           ./scripts/publish_k8s_debs.py \
-            "${{ inputs.component }}" \
-            ${{ inputs.dry-run && '--dry-run' || '' }} \
-            --tag "${{ inputs.tag }}" \
-            --version-postfix "${{ inputs.version-postfix }}" \
-            --log "${{ inputs.log-level }}"
+          --tag "${{ inputs.tag }}" \
+          --version-postfix "${{ inputs.version-postfix }}" \
+          ${{ inputs.dry-run && '--dry-run' || '' }} \
+          ${{ inputs.stable-ppa && '--stable-ppa' || '' }} \
+          ${{ (inputs.log-level != '' && format('-l {0}', inputs.log-level)) || '' }} \
+          "${{ inputs.component }}"

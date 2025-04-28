@@ -3,8 +3,8 @@
 import argparse
 import logging
 import os
-import re
 import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Union
@@ -16,6 +16,12 @@ from util.repo import clone
 from util.util import execute, setup_arguments
 
 LOG = logging.getLogger(__name__)
+
+PRE_TO_RISK = {
+    "a": "alpha",
+    "b": "beta",
+    "rc": "rc",
+}
 
 
 def _get_ubuntu_codename() -> str:
@@ -31,31 +37,31 @@ def _get_ubuntu_codename() -> str:
 class Credentials(BaseModel):
     """Credentials for the builder."""
 
-    bot_gpg_key: SecretStr
-    bot_full_name: str
-    bot_email: str
-    bot_lp_account: str
+    debs_gpg_key: SecretStr
+    debs_full_name: str
+    debs_email: str
+    debs_lp_account: str
 
     @classmethod
-    def _get_creds_from_env(cls) -> "Credentials":
+    def get_creds_from_env(cls) -> "Credentials":
         """Get credentials from environment variables."""
-        bot_gpg_key = os.getenv("BOT_GPG_KEY")
-        if not bot_gpg_key:
-            raise ValueError("BOT_GPG_KEY environment variable is not set")
-        bot_full_name = os.getenv("BOT_FULL_NAME")
-        if not bot_full_name:
-            raise ValueError("BOT_FULL_NAME environment variable is not set")
-        bot_email = os.getenv("BOT_EMAIL")
-        if not bot_email:
-            raise ValueError("BOT_EMAIL environment variable is not set")
-        bot_lp_account = os.getenv("BOT_LP_ACCOUNT")
-        if not bot_lp_account:
-            raise ValueError("BOT_LP_ACCOUNT environment variable is not set")
+        debs_gpg_key = os.getenv("DEBS_GPG_KEY")
+        if not debs_gpg_key:
+            raise ValueError("DEBS_GPG_KEY environment variable is not set")
+        debs_full_name = os.getenv("DEBS_FULL_NAME")
+        if not debs_full_name:
+            raise ValueError("DEBS_FULL_NAME environment variable is not set")
+        debs_email = os.getenv("DEBS_EMAIL")
+        if not debs_email:
+            raise ValueError("DEBS_EMAIL environment variable is not set")
+        debs_lp_account = os.getenv("DEBS_LP_ACCOUNT")
+        if not debs_lp_account:
+            raise ValueError("DEBS_LP_ACCOUNT environment variable is not set")
         return cls(
-            bot_gpg_key=SecretStr(bot_gpg_key),
-            bot_full_name=bot_full_name,
-            bot_email=bot_email,
-            bot_lp_account=bot_lp_account,
+            debs_gpg_key=SecretStr(debs_gpg_key),
+            debs_full_name=debs_full_name,
+            debs_email=debs_email,
+            debs_lp_account=debs_lp_account,
         )
 
 
@@ -69,7 +75,22 @@ class K8sDebManager:
         version_postfix: str,
         creds: Credentials,
         dry_run: bool,
+        stable_ppa: bool = True,
     ):
+        """
+        Initialize the K8sDebManager.
+
+        Args:
+            repo_tag (str): The git tag of the Kubernetes repository (e.g. v1.33.0).
+            component (str): The name of the Kubernetes component to build (e.g. kubeadm).
+            version_postfix (str): The version postfix for the Debian package (e.g. 1).
+            creds (Credentials): The credentials for building and publishing.
+            dry_run (bool): If True, do not publish the package.
+            stable_ppa (bool): If True, use the stable PPA for publishing instead of the test PPA.
+                Test PPA is going to be the same as stable PPA with a `-test` suffix. Example:
+                    Stable PPA:  canonical-kubernetes/v1.33
+                    Test PPA:    canonical-kubernetes/v1.33-test
+        """
         self._jinja_env = Environment(
             # NOTE(Hue): We need to start the path with `scripts` because
             # the script is executed from the root of the repo.
@@ -80,11 +101,12 @@ class K8sDebManager:
         self._repo_tag = repo_tag
         self._component = component
         self._version_postfix = version_postfix
-        self._bot_gpg_key = creds.bot_gpg_key
-        self._bot_full_name = creds.bot_full_name
-        self._bot_email = creds.bot_email
+        self._debs_gpg_key = creds.debs_gpg_key
+        self._debs_full_name = creds.debs_full_name
+        self._debs_email = creds.debs_email
         self._dry_run = dry_run
-        self._bot_lp_account = creds.bot_lp_account
+        self._debs_lp_account = creds.debs_lp_account
+        self._stable_ppa = stable_ppa
 
     @property
     def _debian_dir(self) -> Path:
@@ -100,7 +122,11 @@ class K8sDebManager:
 
     @property
     def _deb_version(self) -> str:
-        return f"{self._k8s_version.major}.{self._k8s_version.minor}-{self._version_postfix}"
+        v = f"{self._k8s_version.major}.{self._k8s_version.minor}.{self._k8s_version.micro}"
+        if self._k8s_version.is_prerelease and len(self._k8s_version.pre) > 2:  #type: ignore
+            pre = f"{PRE_TO_RISK.get(self._k8s_version.pre[0], self._k8s_version.pre[0])}.{self._k8s_version.pre[1]}"  #type: ignore
+            v = f"{v}-{pre}"
+        return f"{v}-{self._version_postfix}"
 
     @property
     def _k8s_version(self) -> Version:
@@ -113,7 +139,12 @@ class K8sDebManager:
     @property
     def _ppa_name(self) -> str:
         maj_min = f"{self._k8s_version.major}.{self._k8s_version.minor}"
-        return f"{self._bot_lp_account}/{self._component}_{maj_min}"
+        stable_ppa = f"{self._debs_lp_account}/v{maj_min}"
+        if self._stable_ppa:
+            LOG.info("Using stable PPA: %s", stable_ppa)
+            return stable_ppa
+        LOG.info("Using test PPA: %s", stable_ppa)
+        return f"{stable_ppa}-test"
 
     def _create_changelog(self, ubuntu_codename: str) -> None:
         """Create the changelog file."""
@@ -123,8 +154,8 @@ class K8sDebManager:
             "component": self._component,
             "deb_version": self._deb_version,
             "ubuntu_codename": ubuntu_codename,
-            "full_name": self._bot_full_name,
-            "email": self._bot_email,
+            "full_name": self._debs_full_name,
+            "email": self._debs_email,
             "date": datetime.now().astimezone().strftime("%a, %d %b %Y %H:%M:%S %z"),
         }
         with open(changelog_path, "w") as dst:
@@ -138,8 +169,8 @@ class K8sDebManager:
             "component": self._component,
             "section": "utils",
             "priority": "optional",
-            "maintainer_name": self._bot_full_name,
-            "maintainer_email": self._bot_email,
+            "maintainer_name": self._debs_full_name,
+            "maintainer_email": self._debs_email,
             "description_short": f"Debian package for {self._component}",
             "description_long": f"Debian package for {self._component} component of Kubernetes. Published and maintained by Canonical.",
         }
@@ -152,8 +183,8 @@ class K8sDebManager:
         copyright_tmpl = self._jinja_env.get_template("copyright.j2")
         context = {
             "component": self._component,
-            "full_name": self._bot_full_name,
-            "email": self._bot_email,
+            "full_name": self._debs_full_name,
+            "email": self._debs_email,
             "year": datetime.now().strftime("%Y"),
         }
         with open(copyright_path, "w") as dst:
@@ -166,8 +197,8 @@ class K8sDebManager:
         readme_tmpl = self._jinja_env.get_template("README.j2")
         context = {
             "component": self._component,
-            "full_name": self._bot_full_name,
-            "email": self._bot_email,
+            "full_name": self._debs_full_name,
+            "email": self._debs_email,
             "date": datetime.now().astimezone().strftime("%a, %d %b %Y %H:%M:%S %z"),
         }
         with open(readme_path, "w") as dst:
@@ -236,21 +267,12 @@ class K8sDebManager:
 
     def _extract_go_version(self) -> Version:
         """Extract the Go version from the go.mod file."""
-        go_mod_path = self._repo_dir / "go.mod"
-        if not os.path.exists(go_mod_path):
-            raise FileNotFoundError(f"go.mod file not found in {self._repo_dir}")
+        go_ver_path = self._repo_dir / ".go-version"
+        if not os.path.exists(go_ver_path):
+            raise FileNotFoundError(f".go-version file not found in {self._repo_dir}")
 
-        go_version = None
-        with open(go_mod_path, "r") as f:
-            for line in f:
-                m = re.match(r"^go (\d+\.\d+\.\d+)$", line.strip())
-                if m:
-                    go_version = m.group(1)
-                    break
-        if not go_version:
-            raise ValueError("Go version not found in go.mod")
-
-        return Version(go_version)
+        with open(go_ver_path, "r") as f:
+            return Version(f.read().strip())
 
     def _download_go_tar(self, go_version: Version, to: Union[str, Path]) -> str:
         """Download the Go tarball for the specified version."""
@@ -287,11 +309,12 @@ class K8sDebManager:
     def _build_source_package(self):
         """Build the source package using debuild."""
         try:
-            execute(
+            out, _ = execute(
                 ["debuild", "-S"],
                 cwd=self._repo_dir,
                 timeout=None,
             )
+            LOG.info("debuild output: \n%s", out)
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
                 f"Failed to build source package: CODE: {e.returncode}\nSTDERR: {e.stderr}\nSTDOUT: {e.stdout}"
@@ -306,11 +329,12 @@ class K8sDebManager:
 
         LOG.info("Uploading changes file %s to %s", changes_file, self._ppa_name)
         try:
-            execute(
-                ["dput", self._ppa_name, changes_file],
+            out, _ = execute(
+                ["dput", f"ppa:{self._ppa_name}", changes_file],
                 cwd=self._repo_dir.parent,
                 timeout=None,
             )
+            LOG.info("dput output: \n%s", out)
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
                 f"Failed to publish source package: CODE: {e.returncode}\nSTDERR: {e.stderr}\nSTDOUT: {e.stdout}"
@@ -321,13 +345,13 @@ class K8sDebManager:
         devscripts_path = os.path.join(os.path.expanduser("~"), ".devscripts")
         devscripts_tmpl = self._jinja_env.get_template("devscripts.j2")
         context = {
-            "gpg_key": self._bot_gpg_key.get_secret_value(),
+            "gpg_key": self._debs_gpg_key.get_secret_value(),
         }
         LOG.info("Creating devscripts file %s", devscripts_path)
         with open(devscripts_path, "w") as dst:
             dst.write(devscripts_tmpl.render(context))
 
-    def _build_deb(self):
+    def _build_deb(self, build_dir: str):
         """Build the Debian package."""
         ubuntu_codename = _get_ubuntu_codename()
         LOG.info("Got Ubuntu codename: %s", ubuntu_codename)
@@ -336,8 +360,10 @@ class K8sDebManager:
             repo_url="https://github.com/kubernetes/kubernetes.git",
             repo_tag=self._repo_tag,
             shallow=True,
+            base_dir=build_dir,
         ) as dir:
             self._repo_dir = dir
+            LOG.info("Cloned Kubernetes repo in %s", self._repo_dir)
             LOG.info("Creating Debian package structure...")
             self._create_debian_package_structure(ubuntu_codename=ubuntu_codename)
             LOG.info("Vendoring Go runtime...")
@@ -359,19 +385,25 @@ class K8sDebManager:
 
     def run(self):
         """Run the main workflow."""
-        LOG.info(
-            "Building %s_%s deb source package...", self._component, self._deb_version
-        )
-        self._build_deb()
-        if self._dry_run:
-            LOG.info("Dry run mode enabled. Will not publish.")
-            return
+        with tempfile.TemporaryDirectory() as tmpdir:
+            LOG.info(
+                "Building %s_%s deb source package in %s...",
+                self._component,
+                self._deb_version,
+                tmpdir,
+            )
+            self._build_deb(build_dir=tmpdir)
+            if self._dry_run:
+                LOG.info("Dry run mode enabled. Will not publish.")
+                return
 
-        LOG.info(
-            "Publishing %s_%s deb source package...", self._component, self._deb_version
-        )
-        self._publish_deb()
-        LOG.info("Package published successfully.")
+            LOG.info(
+                "Publishing %s_%s deb source package...",
+                self._component,
+                self._deb_version,
+            )
+            self._publish_deb()
+            LOG.info("Package published successfully.")
 
 
 def main():
@@ -384,14 +416,23 @@ def main():
         "--tag", required=True, help="Git tag of Kubernetes (e.g., v1.32.3)"
     )
     arg_parser.add_argument("--version-postfix", required=True, help="Version postfix")
+    arg_parser.add_argument(
+        "--stable-ppa",
+        default=False,
+        action="store_true",
+        help="Use stable PPA instead of test PPA",
+    )
     args = setup_arguments(arg_parser)
+
+    LOG.info("Building %s from tag %s with version postfix %s", args.component, args.tag, args.version_postfix)
 
     deb_manager = K8sDebManager(
         repo_tag=args.tag,
         component=args.component,
         version_postfix=args.version_postfix,
-        creds=Credentials._get_creds_from_env(),
+        creds=Credentials.get_creds_from_env(),
         dry_run=args.dry_run,
+        stable_ppa=args.stable_ppa,
     )
 
     deb_manager.run()
