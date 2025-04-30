@@ -26,7 +26,7 @@ def test_no_release_run(mock_sqa, mock_charmhub):
     """If there is no release run exists for the given track, a new one should be started."""
     mock_sqa.current_release_run.return_value = None
 
-    charm_release.process_track("1.32")
+    charm_release.process_track("1.32", "amd64")
 
     mock_sqa.start_release_test.assert_called_once_with("1.32")
     mock_sqa.abort_release_test.assert_not_called()

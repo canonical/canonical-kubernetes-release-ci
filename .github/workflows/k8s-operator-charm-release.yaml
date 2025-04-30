@@ -1,0 +1,75 @@
+name: Auto sync SQA test status and promote approved charms
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/k8s-operator-charm-release.yaml
+  schedule:
+    # Run 20 minutes after midnight
+    - cron: "20 0 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  release-charms:
+    name: Promotes SQA approved charms
+    runs-on: ubuntu-latest
+    env:
+      CHARMCRAFT_AUTH: ${{ secrets.CHARMCRAFT_AUTH }}
+      SQA_API_KEY: ${{ secrets.SQA_API_KEY }}
+      SQA_TOKEN: ${{ secrets.SQA_TOKEN }}
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+      - name: Checking out repo
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - run: pip install -r scripts/requirements.txt
+      - run: sudo snap install weebl-tools --channel latest/edge
+      - run: sudo apt-get install -y gettext
+      - name: Populate SQA credentials file 
+        run: |
+          mkdir -p $HOME/.sqalab
+          cat templates/sqa-environments.yaml | envsubst > $HOME/.sqalab/environments.yaml
+      - name: Process charms
+        id: process-charms
+        run: |
+          tox -e charm_release
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: results.txt
+  
+  mattermost:
+    name: Notify Mattermost
+    needs: [release-charms]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set current formatted date as env variable
+        run: echo "FORMATTED_DATE=$(date +'%d/%m/%Y')" >> $GITHUB_ENV
+      - uses: actions/download-artifact@v4
+        with:
+          name: results
+          path: results.txt
+      - name: Notify Mattermost
+        uses: mattermost/action-mattermost-notify@master
+        with:
+          MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_BOT_WEBHOOK_URL }}
+          PAYLOAD: |
+            {
+              "attachments": [
+                {
+                  "fallback": "k8s-operator Charm Release Status",
+                  "title": "k8s-operator Charm Release Status - ${{ env.FORMATTED_DATE }}",
+                  "text": "$(cat results.txt)"
+                }
+              ]
+            }      

@@ -1,0 +1,19 @@
+[
+    {
+      "uuid": "c34ddeed-acff-481b-a7c8-c19c8c074929",
+      "product.name": "k8s",
+      "product.uuid": "432252b9-2041-4a9a-aece-37c2dbd54201",
+      "version": "None",
+      "channel": "1.32/candidate",
+      "revision": "179"
+    },
+    {
+      "uuid": "e4add1d5-1092-41ad-a17e-06acec6f3bde",
+      "product.name": "k8s",
+      "product.uuid": "432252b9-2041-4a9a-aece-37c2dbd54201",
+      "version": "None",
+      "channel": "1.32/candidate",
+      "revision": "179"
+    }
+  ]
+  

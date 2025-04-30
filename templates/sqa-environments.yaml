@@ -1,0 +1,13 @@
+production:
+    username: <username>
+    uuid: <uuid>
+    apikey: $SQA_API_KEY
+    token: $SQA_TOKEN
+    env_name: production
+    weebl_url: <weebl_url>
+    jenkins_url: <jenkins_url>
+    smtp_from: noreply@canonical.com
+    smtp_pass: <smtp_pass>
+    smtp_port: <smtp_port>
+    smtp_server: <smtp_server>
+    smtp_user: <smtp_pass>

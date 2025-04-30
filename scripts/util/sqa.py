@@ -1,24 +1,57 @@
+from ast import List
 from dataclasses import dataclass
 import datetime
 from enum import Enum
 import subprocess
 from uuid import UUID
 import json
+import re
 
 from util import charmhub
+from typing import List, Optional
 
 # Currently this is tribal knowledge, eventually this should appear in the SQA docs:
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html
-K8S_OPERATOR_PRODUCT_UUID = "3a8046a8-ef27-4ec7-a8a3-af6f470b96d7"
+K8S_OPERATOR_PRODUCT_UUID = "246d8ed3-b1dd-4875-a932-0cbc1b1c86b5"
 
-# TODO: Those are the test plan IDs for "Kuberentes release".
-# Double check if those are really for the k8s-operator or charmed kubernetes.
-K8S_OPERATOR_TEST_PLAN_IDS = [
-    "a60b64e7-11c1-46ee-8926-217214bcdde5",
-    "ba910113-f1dc-42c2-8e8a-3f5446b6dc09",
-    "78865cd1-0f85-4d2c-8198-a383aecc4bf7"
-]
+# TODO: This is the test plan ID for "".
+K8S_OPERATOR_TEST_PLAN_ID = "394fb5b6-1698-4226-bd3e-23b471ee1bd4"
+K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
+class SQAFailure(Exception):
+    pass
+
+@dataclass
+class Product:
+    name: str
+    uuid: UUID
+
+    @staticmethod
+    def from_dict(data: dict) -> "Product":
+        return Product(
+            name=data["product.name"],
+            uuid=UUID(data["product.uuid"])
+        )
+
+@dataclass
+class ProductVersion:
+    uuid: UUID
+    product: Product
+    version: str
+    channel: str
+    revision: str
+
+    @staticmethod
+    def from_dict(data: dict) -> "ProductVersion":
+        product_data = {k: v for k, v in data.items() if k.startswith("product.")}
+
+        return ProductVersion(
+            uuid=UUID(data["uuid"]),
+            product=Product.from_dict(product_data),
+            version=data["version"],
+            channel=data["channel"],
+            revision=data["revision"]
+        )
 
 class TestPlanInstanceStatus(Enum):
     IN_PROGRESS = (1, "In Progress")
@@ -59,10 +92,10 @@ class TestPlanInstance:
     def from_dict(data: dict) -> "TestPlanInstance":
         return TestPlanInstance(
             test_plan=data["test_plan"],
-            created_at=datetime.fromisoformat(
+            created_at=datetime.datetime.fromisoformat(
                 data["created_at"].replace("Z", "+00:00")
             ),
-            updated_at=datetime.fromisoformat(
+            updated_at=datetime.datetime.fromisoformat(
                 data["updated_at"].replace("Z", "+00:00")
             ),
             id=data["id"],
@@ -83,49 +116,75 @@ class TestPlanInstance:
 
     @property
     def succeeded(self):
-        return self.status == TestPlanInstanceStatus.SUCCESS
+        return self.status == TestPlanInstanceStatus.PASSED
 
     @property
     def failed(self):
         return self.status in [
             TestPlanInstanceStatus.ERROR,
-            TestPlanInstanceStatus.ABORTED,
             TestPlanInstanceStatus.FAILURE,
         ]
 
 
-def _create_product_version(revision: str) -> str:
-    product_version_cmd = f"weebl-tools.sqalab productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --revision {revision}"
+def create_product_version(channel: str, revision: str) -> ProductVersion:
+    product_version_cmd = f"weebl-tools.sqalab productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --revision {revision}"
 
-    print(f"Creating product version for revision {revision}...")
+    print(f"Creating product version for channel {channel} revision {revision}...")
     print(product_version_cmd)
 
-    product_version_response = subprocess.run(
-        product_version_cmd.split(" "), check=True, capture_output=True, text=True
-    )
+    try:
+        product_version_response = subprocess.run(
+            product_version_cmd.split(" "), check=True, capture_output=True, text=True
+        )
+    except subprocess.CalledProcessError as e:
+        print("Creating product version failed:")
+        print(e.stderr)
+        raise SQAFailure
 
     print(product_version_response.stdout)
-    # TODO: Maybe make this a dataclass
-    product_version = json.loads(product_version_response.stdout.strip())[0]["uuid"]
-    print(f"Product version UUID: {product_version}")
+    product_versions = [ProductVersion.from_dict(item) for item in json.loads(product_version_response.stdout.strip())]
 
-    return product_version
+    if not product_versions:
+        print("Creating product version failed:")
+        print("empty response")
+        raise SQAFailure         
+    
+
+    return product_versions[0]
 
 
-def _create_test_plan_instance(product_version: str, channel: str) -> TestPlanInstance:
-    test_plan_instance_cmd = f"weebl-tools.sqalab testplaninstance add --test-plan <your test plan> --product-under-test {product_version} --effective-priority <your priority>"
+def _create_test_plan_instance(product_version_uuid: str) -> TestPlanInstance:
+    test_plan_instance_cmd = f"weebl-tools.sqalab testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --status 'aborted' --base_priority 3 --product_under_test {product_version_uuid}"
+    matches = re.findall(r"'([^']*)'|(\S+)", test_plan_instance_cmd)
+    test_plan_instance_cmd = [m[0] if m[0] else m[1] for m in matches]
 
-    print(f"Creating test plan instance for {channel}...")
+    print(f"Creating test plan instance for product version {product_version_uuid}...")
     print(test_plan_instance_cmd)
 
-    test_plan_instance_response = subprocess.run(
-        test_plan_instance_cmd.split(" "), check=True, capture_output=True, text=True
-    )
+    try:
+        test_plan_instance_response = subprocess.run(
+            test_plan_instance_cmd, check=True, capture_output=True, text=True
+        )
+    except subprocess.CalledProcessError as e:
+        print("Creating test plan instance failed:")
+        print(e.stderr)
+        raise SQAFailure
 
-    print(test_plan_instance_response.stdout)
-    return TestPlanInstance.from_dict(
-        json.loads(test_plan_instance_response.stdout.strip())
-    )
+    print(json_str := test_plan_instance_response.stdout)
+    end_index = json_str.rfind(']')  
+
+    if end_index != -1:
+        json_str = json_str[:end_index + 1]
+   
+    test_plan_instances = [TestPlanInstance.from_dict(item) for item in json.loads(json_str.strip())]
+
+    if not test_plan_instances:
+        print("Creating test plan instance failed:")
+        print("empty response")
+        raise SQAFailure         
+    
+
+    return test_plan_instances[0]    
 
 
 def _delete_test_plan_instance(uuid: UUID) -> None:
@@ -144,30 +203,112 @@ def _delete_test_plan_instance(uuid: UUID) -> None:
     print(test_plan_instance_response.stdout)
 
 
-def current_release_run(channel, revision) -> TestPlanInstance:
-    # TODO: Implement once SQA API is fixed.
-    test_plan_instance_cmd = f"weebl-tools.sqalab testplaninstance list --product-under-test {channel} --revision {revision} --format json"
+def current_release_run(channel, revision) -> Optional[TestPlanInstance]:
+    """
+    First try to get any passed TPIs for the (channel, revision)
+    If no passed TPI found, try to get in progress TPIs
+    If no in progress TPI found, try to get failed/(in-)error TPIs
+    If no failed TPI found, return None
+    The aborted TPIs are ignored since they don't semantically hold 
+    any information about the state of a track
+    """
+    product_versions = _product_versions(channel, revision)
 
-    print(f"Creating test plan instance for {channel}...")
-    print(test_plan_instance_cmd)
+    if not product_versions:
+        return None
 
-    test_plan_instance_response = subprocess.run(
-        test_plan_instance_cmd.split(" "), check=True, capture_output=True, text=True
-    )
+    passed_test_plan_instances = _joined_test_plan_instances(product_versions, TestPlanInstanceStatus.PASSED)
+    if passed_test_plan_instances:
+        return TestPlanInstance(
+            uuid=passed_test_plan_instances[0],
+            status=TestPlanInstanceStatus.PASSED
+        )
+    
+    in_progress_test_plan_instances = _joined_test_plan_instances(product_versions, TestPlanInstanceStatus.IN_PROGRESS)
+    if in_progress_test_plan_instances:
+        return TestPlanInstance(
+            uuid=in_progress_test_plan_instances[0],
+            status=TestPlanInstanceStatus.IN_PROGRESS
+        )
+    
+    failed_test_plan_instances = _joined_test_plan_instances(product_versions, TestPlanInstanceStatus.FAILED)
+    if failed_test_plan_instances:
+        return TestPlanInstance(
+            uuid=failed_test_plan_instances[0],
+            status=TestPlanInstanceStatus.FAILED
+        )
+    
+    in_error_test_plan_instances = _joined_test_plan_instances(product_versions, TestPlanInstanceStatus.ERROR)
+    if in_error_test_plan_instances:
+        return TestPlanInstance(
+            uuid=in_error_test_plan_instances[0],
+            status=TestPlanInstanceStatus.ERROR
+        )
+    
+    return None
 
-    print(test_plan_instance_response.stdout)
-    return TestPlanInstance.from_dict(
-        json.loads(test_plan_instance_response.stdout.strip())
-    )
+def _joined_test_plan_instances(product_versions: List[ProductVersion], status: TestPlanInstanceStatus) -> List[UUID]:
+    return [ins for product_version in product_versions for ins in _test_plan_instances(str(product_version.uuid), status)]
+
+def _test_plan_instances(productversion_uuid, status: TestPlanInstanceStatus) -> List[UUID]:
+    test_plan_instances_cmd = f"weebl-tools.sqalab testplaninstance list --format json --productversion-uuid {productversion_uuid} --status '{status.display_name.lower()}'"
+    matches = re.findall(r"'([^']*)'|(\S+)", test_plan_instances_cmd)
+    test_plan_instances_cmd = [m[0] if m[0] else m[1] for m in matches]
 
 
-def start_release_test(channel):
-    product_version = _create_product_version(channel)
-    test_plan_instance = _create_test_plan_instance(channel, product_version)
+    print(f"Getting test plan instances for product version {productversion_uuid}...")
+    print(test_plan_instances_cmd)
+
+    try:
+        test_plan_instances_response = subprocess.run(
+            test_plan_instances_cmd, check=True, capture_output=True, text=True
+        )
+    except subprocess.CalledProcessError as e:
+        print("Getting test plan instances failed:")
+        print(e.stderr)
+        raise SQAFailure
+
+    print(json_str := test_plan_instances_response.stdout)
+    start_index = json_str.rfind('{')  
+
+    if start_index != -1:
+        json_str = json_str[start_index:]
+
+    if not (json_dict := json.loads(json_str.strip())):
+        return []
+
+    uuids = [UUID(item) for item in json_dict[K8S_OPERATOR_TEST_PLAN_NAME]]
+
+    return uuids
+
+def _product_versions(channel, revision) -> List[ProductVersion]:
+    product_versions_cmd = f"weebl-tools.sqalab productversion list --name k8s --channel {channel} --revision {revision} --format json"
+
+    print(f"Getting product versions for channel {channel} revision {revision}")
+    print(product_versions_cmd)
+    
+    try:
+        product_versions_response = subprocess.run(
+            product_versions_cmd.split(" "), check=True, capture_output=True, text=True
+        )
+    except subprocess.CalledProcessError as e:
+        print("Getting product versions failed:")
+        print(e.stderr)
+        raise SQAFailure
+
+    print(product_versions_response.stdout)
+    product_versions = [ProductVersion.from_dict(item) for item in json.loads(product_versions_response.stdout.strip())]
+    return product_versions
+
+def start_release_test(channel, revision):
+    
+    product_versions = _product_versions(channel, revision)
+    if product_versions:
+        print(f"using already defined product version {product_versions[0].uuid} to create TPI")
+        product_version = product_versions[0]
+    else:
+        product_version = create_product_version(channel, revision)
+
+    
+    test_plan_instance = _create_test_plan_instance(str(product_version.uuid))
     print(f"Started release test for {channel} with UUID: {test_plan_instance.uuid}")
-
-
-def abort_release_test(channel):
-    current_run = current_release_run(channel)
-    _delete_test_plan_instance(current_run.uuid)
-    print(f"Aborted release test for {channel} with UUID: {current_run.uuid}")

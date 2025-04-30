@@ -1,9 +1,9 @@
-import base64
 import json
 import logging
-import os
-
 import requests
+
+from util import charmhub
+
 
 LOG = logging.getLogger(__name__)
 INFO_URL = "https://api.snapcraft.io/v2/snaps/info/"
@@ -48,7 +48,7 @@ def create_track(snap_name: str, track_name: str) -> None:
     # See https://juju.is/docs/sdk/create-a-track-for-your-charm#heading--self-service
     # For obvious reasons, we will keep this function in the snapstore module regardless.
     url = f"https://api.charmhub.io/v1/snap/{snap_name}/tracks"
-    auth_macaroon = get_charmhub_auth_macaroon()
+    auth_macaroon = charmhub.get_charmhub_auth_macaroon()
     headers = {
         "Authorization": f"Macaroon {auth_macaroon}",
         "Content-Type": "application/json",
@@ -58,20 +58,3 @@ def create_track(snap_name: str, track_name: str) -> None:
     r.raise_for_status()
 
 
-def get_charmhub_auth_macaroon() -> str:
-    """Get the charmhub macaroon from the environment.
-
-    This is used to authenticate with the charmhub API.
-    Will raise a ValueError if CHARMCRAFT_AUTH is not set or the credentials are malformed.
-    """
-    # Auth credentials provided by "charmcraft login --export $outfile"
-    creds_export_data = os.getenv("CHARMCRAFT_AUTH")
-    if not creds_export_data:
-        raise ValueError("Missing charmhub credentials,")
-
-    str_data = base64.b64decode(creds_export_data).decode()
-    auth = json.loads(str(str_data))
-    v = auth.get("v")
-    if not v:
-        raise ValueError("Malformed charmhub credentials")
-    return v

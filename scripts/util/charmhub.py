@@ -1,21 +1,16 @@
 import base64
 import json
 import logging
-import os
 import subprocess
 import requests
 import hashlib
+import os
 from typing import List, Dict, Optional
 
 LOG = logging.getLogger(__name__)
-# TODO: Do not
+
 INFO_URL = "https://api.charmhub.io/v1/charm/k8s/releases"
-PROMOTE_URL = "https://dashboard.snapcraft.io/dev/api/snap-release"
-# Headers for Snap Store API request
-HEADERS = {
-    "Snap-Device-Series": "16",
-    "User-Agent": "Mozilla/5.0",
-}
+
 # Timeout for Store API request in seconds
 TIMEOUT = 10
 
@@ -74,6 +69,7 @@ def calculate_channel_sha256(channel_revisions: List[Dict[str, any]]) -> str:
 
     return hashlib.sha256(channel_data).hexdigest()
 
+
 def get_charmhub_auth_macaroon() -> str:
     """Get the charmhub macaroon from the environment.
 
@@ -81,8 +77,7 @@ def get_charmhub_auth_macaroon() -> str:
     Will raise a ValueError if CHARMCRAFT_AUTH is not set or the credentials are malformed.
     """
     # Auth credentials provided by "charmcraft login --export $outfile"
-    # TODO: Remove hardcoded credentials
-    creds_export_data = "eyJ0IjogIm1hY2Fyb29uIiwgInYiOiAiQWdFUVlYQnBMbk51WVhCamNtRm1kQzVwYndJbUF3b1F4ZW1hS0EzVTd5N3NFR0RQUTNBaXd4SUJNQm9PQ2dWc2IyZHBiaElGYkc5bmFXNEFBaWQwYVcxbExXSmxabTl5WlNBeU1ESTFMVEF5TFRBMVZERTRPakkzT2pBMExqWXpNakUyT1ZvQUFpWjBhVzFsTFhOcGJtTmxJREl3TWpVdE1ESXRNRFJVTVRJNk1qYzZNRFF1TmpNeU1UWTVXZ0FDTDNObGMzTnBiMjR0YVdRZ05UQTVORFF5TlRjdE16WTRaaTAwWm1Nd0xUZzJZVEF0WXpnd1lqWTBOMlUzT0dKakFBSTVaR1ZqYkdGeVpXUWdkWE5sY21sa0lIVnpjMjg2YUhSMGNITTZMeTlzYjJkcGJpNTFZblZ1ZEhVdVkyOXRMeXRwWkM5WVRUZG1kMlZtQUFKdVpYaDBjbUVnZXlKd1pYSnRhWE56YVc5dWN5STZJRnNpWVdOamIzVnVkQzF5WldkcGMzUmxjaTF3WVdOcllXZGxJaXdnSW1GalkyOTFiblF0ZG1sbGR5MXdZV05yWVdkbGN5SXNJQ0p3WVdOcllXZGxMVzFoYm1GblpTSXNJQ0p3WVdOcllXZGxMWFpwWlhjaVhYMEFBQVlnNm5DSWJVZ2hHdGVHRUlxREhjcERMTlVjRDQyTC0yTWJIUW0wYWFBY2VRTSJ9" #os.getenv("CHARMCRAFT_AUTH")
+    creds_export_data = os.getenv("CHARMCRAFT_AUTH")
     if not creds_export_data:
         raise ValueError("Missing charmhub credentials,")
 
@@ -93,7 +88,8 @@ def get_charmhub_auth_macaroon() -> str:
         raise ValueError("Malformed charmhub credentials")
     return v
 
-def get_charm_revision(charm_name: str, channel: str, arch: str) -> Optional[int]:
+
+def get_latest_charm_revision(charm_name: str, channel: str, arch: str) -> Optional[int]:
     """Get the revision of a charm in a channel."""
     auth_macaroon = get_charmhub_auth_macaroon()
     headers = {
@@ -105,18 +101,21 @@ def get_charm_revision(charm_name: str, channel: str, arch: str) -> Optional[int
     r.raise_for_status()
 
     data = json.loads(r.text)
+    print("Search for latest charm revision in channel list...")
 
-    print("Search for charm revision in channel list...")
+    latest_revision=None
     for channel_map in data.get("channel-map", []):
-        if channel == channel_map["channel"] and arch == channel_map["architecture"]:
-            return channel_map["revision"]
+        if channel == channel_map["channel"] and arch == channel_map["base"]["architecture"]:
+            current_revision = int(channel_map["revision"])
+            if not latest_revision:
+                latest_revision = current_revision
+                continue
 
-    return None
+            if current_revision > latest_revision:
+                latest_revision = current_revision
 
-def get_supported_archs(charm_name: str) -> List[str]:
-    """Get the supported architectures for a charm."""
-    # TODO Implement call to charmhub API and get this information from the channel map
-    return ["amd64"]
+    return latest_revision
+
 
 def promote_charm(charm_name, from_channel, to_channel):
     """Promote a charm from one channel to another."""

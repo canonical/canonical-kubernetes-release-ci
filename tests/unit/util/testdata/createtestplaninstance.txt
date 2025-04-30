@@ -1,0 +1,13 @@
+[
+    {
+      "test_plan": "CanonicalK8s",
+      "created_at": "2025-04-29T09:02:55.453817Z",
+      "updated_at": "2025-04-29T09:02:55.453817Z",
+      "id": "708",
+      "effective_priority": "3.0027356476020417",
+      "status": "In Progress",
+      "uuid": "ccdcb402-78cf-4141-bc64-73f77d29d670",
+      "product_under_test": "k8s-operator-charm-None(743)-1.32"
+    }
+  ]
+testplan instance created, view at: https://solutions.qa.canonical.com/releasetests/ccdcb402-78cf-4141-bc64-73f77d29d670
