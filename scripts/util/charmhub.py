@@ -4,6 +4,7 @@ import logging
 import requests
 import hashlib
 import os
+import subprocess
 from typing import List, Dict, Optional
 
 LOG = logging.getLogger(__name__)
@@ -118,7 +119,6 @@ def get_latest_charm_revision(charm_name: str, channel: str, arch: str) -> Optio
 
 def promote_charm(charm_name, from_channel, to_channel):
     """Promote a charm from one channel to another."""
-    # FIXME
-    # subprocess.run([
-    #     "charmcraft", "promote", charm_name, f"{from_channel}", f"{to_channel}"
-    # ], check=True)
+    subprocess.run([
+        "charmcraft", "promote", charm_name, f"{from_channel}", f"{to_channel}"
+    ], check=True)
