@@ -1,7 +1,6 @@
 import base64
 import json
 import logging
-import subprocess
 import requests
 import hashlib
 import os
@@ -119,6 +118,7 @@ def get_latest_charm_revision(charm_name: str, channel: str, arch: str) -> Optio
 
 def promote_charm(charm_name, from_channel, to_channel):
     """Promote a charm from one channel to another."""
-    subprocess.run([
-        "charmcraft", "promote", charm_name, f"{from_channel}", f"{to_channel}"
-    ], check=True)
+    # FIXME
+    # subprocess.run([
+    #     "charmcraft", "promote", charm_name, f"{from_channel}", f"{to_channel}"
+    # ], check=True)

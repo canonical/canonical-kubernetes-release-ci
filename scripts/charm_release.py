@@ -38,7 +38,6 @@ TODOs:
 * Cleaning up outdated and aborted TPIs in a separate cronjob
 """
 import argparse
-import json
 
 from util import charmhub, sqa
 from requests.exceptions import HTTPError
