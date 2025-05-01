@@ -58,7 +58,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: results
-          path: results.txt
+      - name: Read results
+        run: |
+          ESCAPED=$(sed ':a;N;$!ba;s/\n/\\n/g' results.txt)
+          echo "RESULTS_TEXT=$ESCAPED" >> $GITHUB_ENV
       - name: Notify Mattermost
         uses: mattermost/action-mattermost-notify@master
         with:
@@ -69,7 +72,7 @@ jobs:
                 {
                   "fallback": "k8s-operator Charm Release Status",
                   "title": "k8s-operator Charm Release Status - ${{ env.FORMATTED_DATE }}",
-                  "text": "$(cat results.txt)"
+                  "text": "${{ env.RESULTS_TEXT }}"
                 }
               ]
             }      

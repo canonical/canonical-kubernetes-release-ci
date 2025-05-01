@@ -96,7 +96,7 @@ def process_track(track, arch) -> ProcessState:
         print(f"Channel {channel} latest reversion: {latest_charm_revision}")
 
         latest_stable_charm_revision = charmhub.get_latest_charm_revision("k8s", stable_channel , arch)
-        print(f"Channel {channel} latest reversion: {latest_charm_revision}")
+        print(f"Channel {stable_channel} latest reversion: {latest_stable_charm_revision}")
     except HTTPError as e:
         print(f"failed to get charm revisions: {e}")
         return ProcessState.PROCESS_CI_FAILED
