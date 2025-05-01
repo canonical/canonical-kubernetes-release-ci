@@ -154,7 +154,7 @@ def create_product_version(channel: str, revision: str) -> ProductVersion:
 
 
 def _create_test_plan_instance(product_version_uuid: str) -> TestPlanInstance:
-    test_plan_instance_cmd = f"weebl-tools.sqalab testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --status 'aborted' --base_priority 3 --product_under_test {product_version_uuid}"
+    test_plan_instance_cmd = f"weebl-tools.sqalab testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --status 'In Progress' --base_priority 3 --product_under_test {product_version_uuid}"
     matches = re.findall(r"'([^']*)'|(\S+)", test_plan_instance_cmd)
     test_plan_instance_cmd = [m[0] if m[0] else m[1] for m in matches]
 
