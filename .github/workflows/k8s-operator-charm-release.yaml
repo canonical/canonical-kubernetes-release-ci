@@ -18,7 +18,6 @@ jobs:
     env:
       CHARMCRAFT_AUTH: ${{ secrets.CHARMCRAFT_AUTH }}
       SQA_API_KEY: ${{ secrets.SQA_API_KEY }}
-      SQA_TOKEN: ${{ secrets.SQA_TOKEN }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@v2
@@ -36,8 +35,9 @@ jobs:
       - run: sudo apt-get install -y gettext
       - name: Populate SQA credentials file 
         run: |
-          mkdir -p $HOME/.sqalab
-          cat templates/sqa-environments.yaml | envsubst > $HOME/.sqalab/environments.yaml
+          sudo snap connect weebl-tools:home
+          cat templates/sqa-environments.yaml | envsubst > $HOME/environments.yaml
+          weebl-tools.sqalab environment create --yaml $HOME/environments.yaml
       - name: Process charms
         id: process-charms
         run: |

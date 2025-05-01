@@ -1,13 +1,13 @@
 production:
-    username: <username>
-    uuid: <uuid>
+    username: rapour
+    uuid: rapour
     apikey: $SQA_API_KEY
-    token: $SQA_TOKEN
+    token: $SQA_API_KEY
     env_name: production
-    weebl_url: <weebl_url>
-    jenkins_url: <jenkins_url>
+    weebl_url: http://10.131.231.53:8080
+    jenkins_url: http://10.131.231.80:8080
     smtp_from: noreply@canonical.com
-    smtp_pass: <smtp_pass>
-    smtp_port: <smtp_port>
-    smtp_server: <smtp_server>
-    smtp_user: <smtp_pass>
+    smtp_pass: figandleaves
+    smtp_port: 465
+    smtp_server: smtp.canonical.com
+    smtp_user: canonical

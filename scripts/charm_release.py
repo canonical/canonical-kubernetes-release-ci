@@ -128,7 +128,7 @@ def process_track(track, arch) -> ProcessState:
             print(f"Unknown state for {track}. Skipping...")
             return ProcessState.PROCESS_CI_FAILED
     except Exception as e:
-        print(f"process track {track} on {arch} faile: {e}")
+        print(f"process track {track} on {arch} failed: {e}")
         return ProcessState.PROCESS_CI_FAILED
 
 def main():
