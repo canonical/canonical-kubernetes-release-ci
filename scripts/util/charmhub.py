@@ -1,11 +1,13 @@
 import base64
+import hashlib
 import json
 import logging
-import requests
-import hashlib
 import os
 import subprocess
-from typing import List, Dict, Optional
+from collections import defaultdict
+from typing import Dict, List
+
+import requests
 
 LOG = logging.getLogger(__name__)
 
@@ -13,6 +15,57 @@ INFO_URL = "https://api.charmhub.io/v1/charm/k8s/releases"
 
 # Timeout for Store API request in seconds
 TIMEOUT = 10
+
+
+class RevisionMatrix:
+    """
+    For each tuple of (name, channel, arch, base) there is a unique charm artifact
+    in Charmhub. RevisionMatrix is a matrix of (arch, base) revisions if any for a 
+    specific (name, channel) tuple.
+    Rows of the matrix correspond to different architectures.
+    Columns of the matrix correspond to different bases.
+    """
+    def __init__(self):
+        self.data = defaultdict(dict)
+
+    def set(self, arch, base, revision):
+        self.data[arch][base] = revision
+
+    def get_archs(self):
+        return list(self.data.keys())
+
+    def get_bases(self):
+        bases = set()
+        for base in self.data.values():
+            bases.update(base.keys())
+        return bases
+
+    def get(self, arch, base):
+        return self.data.get(arch, {}).get(base, None)
+
+    def remove_arch(self, arch):
+        if arch in self.data:
+            del self.data[arch]
+
+    def remove_base(self, base):
+        for arch in list(self.data):
+            if base in self.data[arch]:
+                del self.data[arch][base]
+
+    def __eq__(self, other):
+        if not isinstance(other, RevisionMatrix):
+            return NotImplemented
+        return dict(self.data) == dict(other.data)
+
+    def __str__(self):
+        archs = sorted(self.data)
+        bases = sorted({c for r in self.data.values() for c in r})
+        result = ["\t" + "\t".join(bases)]
+        for a in archs:
+            line = [a] + [str(self.data[a].get(c, "")) for c in bases]
+            result.append("\t".join(line))
+        return "\n".join(result)
+
 
 def get_channel_version_string(channel: str) -> str:
     """Get the version string for a given channel."""
@@ -23,7 +76,7 @@ def get_channel_version_string(channel: str) -> str:
     return f"k8s-operator-{channel}-{k8s_version}-{k8s_worker_version}"
 
 
-def get_charm_channel_hashes(charm_name: str, channel: str) -> dict:
+def get_charm_channel_hashes(charm_name: str, channel: str) -> str:
     """
     Queries Charmhub for the current state of all tracks of a given charm and returns
     a dictionary mapping tracks to their SHA256 hash.
@@ -89,32 +142,31 @@ def get_charmhub_auth_macaroon() -> str:
     return v
 
 
-def get_latest_charm_revision(charm_name: str, channel: str, arch: str) -> Optional[int]:
+def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:
     """Get the revision of a charm in a channel."""
     auth_macaroon = get_charmhub_auth_macaroon()
     headers = {
         "Authorization": f"Macaroon {auth_macaroon}",
         "Content-Type": "application/json",
     }
-    print(f"Querying Charmhub for to get revision of {charm_name} in {channel}/{arch}...")
+    print(f"Querying Charmhub for to get revisions of {charm_name} in {channel}...")
     r = requests.get(INFO_URL, headers=headers, timeout=TIMEOUT)
     r.raise_for_status()
 
     data = json.loads(r.text)
-    print("Search for latest charm revision in channel list...")
+    print("Search for charm revisions in channel list...")
 
-    latest_revision=None
+    revision_matrix=RevisionMatrix()
     for channel_map in data.get("channel-map", []):
-        if channel == channel_map["channel"] and arch == channel_map["base"]["architecture"]:
-            current_revision = int(channel_map["revision"])
-            if not latest_revision:
-                latest_revision = current_revision
-                continue
+        if channel == channel_map["channel"]:
+            revision_matrix.set(
+                channel_map["base"]["architecture"], 
+                channel_map["base"]["base"],
+                int(channel_map["revision"])
+                )
+            
 
-            if current_revision > latest_revision:
-                latest_revision = current_revision
-
-    return latest_revision
+    return revision_matrix
 
 
 def promote_charm(charm_name, from_channel, to_channel):

@@ -12,7 +12,7 @@ for each (track, arch):
     get data for current (track, arch) state:
         - extract latest revision on channel=<track>/candidate from (track, arch)
         - extract latest revision on stable_channel=<track>/stable from (track, arch)  
-        - skip if the latest revsion on <track>/candidate is already published in <track>/stable
+        - skip if the latest revision on <track>/candidate is already published in <track>/stable
         - get the (track, arch) state with corresponding (channel, revision) from SQA API
 
     track with corresponding (channel, revision) is in one of the following states:
@@ -38,107 +38,129 @@ TODOs:
 * Cleaning up outdated and aborted TPIs in a separate cronjob
 """
 import argparse
+import os
+from enum import StrEnum, auto
 
-from util import charmhub, sqa
 from requests.exceptions import HTTPError
-from typing import List
+from util import charmhub, sqa
 
-class ProcessState:
-    PROCESS_SUCCESS = "PROCESS_SUCCESS"
-    PROCESS_IN_PROGRESS = "PROCESS_IN_PROGRESS"
-    PROCESS_FAILED = "PROCESS_FAILED"
-    PROCESS_CI_FAILED = "PROCESS_CI_FAILED"
-    PROCESS_UNCHANGED = "PROCESS_UNCHANGED"
 
-# Define possible states for a track
 class TrackState:
-    NO_TEST = "NO_TEST"
-    TEST_IN_PROGRESS = "TEST_IN_PROGRESS"
-    TEST_SUCCESS = "TEST_SUCCESS"
-    TEST_FAILED = "TEST_FAILED"
-    UNKNOWN_STATE = "UNKNOWN_STATE"
+    def __init__(self):
+        self._state_map = {}
+
+    def set_state(self, revision, state: sqa.TestPlanInstanceStatus):
+        if not isinstance(state, sqa.TestPlanInstanceStatus):
+            raise ValueError("State must be an instance of TestPlanInstanceStatus")
+        self._state_map[revision] = state
+
+    @property
+    def failed(self) -> bool:
+        return any(s.failed for s in self._state_map.values())
+    
+    @property
+    def succeeded(self) -> bool:
+        return all(s.succeeded for s in self._state_map.values())
+    
+    @property
+    def in_progress(self) -> bool:
+        if self.failed:
+            return False
+        return any(s.in_progress for s in self._state_map.values())
+
+class ProcessState(StrEnum):
+    PROCESS_SUCCESS = auto()
+    PROCESS_IN_PROGRESS = auto()
+    PROCESS_FAILED = auto()
+    PROCESS_CI_FAILED = auto()
+    PROCESS_UNCHANGED = auto()
+
+
+
 
 def get_tracks():
     """Retrieve a list of supported tracks."""
-    # TODO: Should the supported tracks come from here or in a separate step of the Github Action and injected as an argument?
-    return ["1.32", "1.33"]  
+    with open(os.path.join(os.path.dirname(__file__), 'supported_tracks.txt'), 'r') as file:
+        keys = [line.strip() for line in file if line.strip()]
+    return keys
 
-def get_supported_archs() -> List[str]:
-    """Get the list of supported architectures."""
-    # Note(Reza): Currently SQA only supports the test for the amd64 architecture
-    # we should differentiate the TPIs for different architectures once arm64 is 
-    # also supported.
-    return ["amd64"]
+def ensure_track_state(charm_name, channel, revision_matrix: charmhub.RevisionMatrix) -> TrackState:
 
-def get_track_state(channel, revision) -> TrackState:
-    """Determine the current state of the given (channel, revision)."""
-    
-    current_release_run = sqa.current_release_run(channel, revision)
-    if not current_release_run:
-        return TrackState.NO_TEST
-    if current_release_run.in_progress:
-        return TrackState.TEST_IN_PROGRESS
-    elif current_release_run.succeeded:
-        return TrackState.TEST_SUCCESS
-    elif current_release_run.failed:
-        return TrackState.TEST_FAILED
+    for arch in revision_matrix.get_archs():
+        
+        # Note(Reza): Currently SQA only supports the test for the amd64 architecture
+        # we should differentiate the TPIs for different architectures once arm64 is 
+        # also supported.
+        if arch != "amd64":
+            continue
+        
+        track_state = TrackState()
+        for base in revision_matrix.get_bases():
 
-    return TrackState.UNKNOWN_STATE
+            revision = revision_matrix.get(arch, base)
+            if not revision:
+                continue
 
-def process_track(track, arch) -> ProcessState:
-    """Process the given (track, arch) based on its current state."""
+            current_test_plan_instance = sqa.current_test_plan_instance(charm_name, channel, revision)
+            if not current_test_plan_instance:
+                sqa.start_release_test(charm_name, channel, revision)
+                track_state.set_state(revision, sqa.TestPlanInstanceStatus.IN_PROGRESS)
+                continue
+            
+            track_state.set_state(revision, current_test_plan_instance.status)
 
-    channel = f"{track}/candidate"
+    return track_state
+
+def process_track(track) -> ProcessState:
+    """Process the given track based on its current state."""
+
+    candidate_channel = f"{track}/candidate"
     stable_channel = f"{track}/stable"
 
     try:
-        latest_charm_revision = charmhub.get_latest_charm_revision("k8s", channel , arch)
-        print(f"Channel {channel} latest reversion: {latest_charm_revision}")
+        candidate_revision_matrix = charmhub.get_revision_matrix("k8s", candidate_channel)
+        print(f"Channel {candidate_channel} revisions:")
+        print(candidate_revision_matrix)
 
-        latest_stable_charm_revision = charmhub.get_latest_charm_revision("k8s", stable_channel , arch)
-        print(f"Channel {stable_channel} latest reversion: {latest_stable_charm_revision}")
+        stable_revision_matrix = charmhub.get_revision_matrix("k8s", stable_channel)
+        print(f"Channel {stable_channel} reversions:")
+        print(stable_revision_matrix)
     except HTTPError as e:
         print(f"failed to get charm revisions: {e}")
         return ProcessState.PROCESS_CI_FAILED
 
-    if latest_charm_revision == latest_stable_charm_revision:
-        print(f"The channel {channel} latest revision {latest_charm_revision} is already published in {stable_channel}. Skipping...")
+    if candidate_revision_matrix == stable_revision_matrix:
+        print(f"The channel {candidate_channel} is already published in {stable_channel}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
 
     try:
-        state = get_track_state(channel, latest_charm_revision)
-        print(f"Track {track} on {arch} is in state: {state}")
+        state = ensure_track_state("k8s", candidate_channel, candidate_revision_matrix)
+        print(f"Track {track} is in state: {state}")
 
-        if state == TrackState.NO_TEST:
-            print(f"No release run for {track} yet. Starting a new one...")
-            sqa.start_release_test(channel, latest_charm_revision)
-            return ProcessState.PROCESS_IN_PROGRESS
-        elif state == TrackState.TEST_IN_PROGRESS:
+        if state.succeeded:
+            print(f"Release run for {track} succeeded. Promoting charm revisions...")
+            charmhub.promote_charm("k8s", candidate_channel, stable_channel)
+            charmhub.promote_charm("k8s-worker", candidate_channel, stable_channel)
+            return ProcessState.PROCESS_SUCCESS
+        elif state.in_progress:
             print(f"Release run for {track} is still in progress. No action needed.")
             return ProcessState.PROCESS_IN_PROGRESS
-        elif state == TrackState.TEST_SUCCESS:
-            print(f"Release run for {track} succeeded. Promoting charm revisions...")
-            charmhub.promote_charm("k8s", channel, stable_channel)
-            charmhub.promote_charm("k8s-worker", channel, stable_channel)
-            return ProcessState.PROCESS_SUCCESS
-        elif state == TrackState.TEST_FAILED:
+        elif state.failed:
             print(f"Release run for {track} failed. Manual intervention required.")
             return ProcessState.PROCESS_FAILED
         else:
             print(f"Unknown state for {track}. Skipping...")
             return ProcessState.PROCESS_CI_FAILED
     except Exception as e:
-        print(f"process track {track} on {arch} failed: {e}")
-        return ProcessState.PROCESS_CI_FAILED
+        print(f"process track {track} failed: {e}")
+        return ProcessState.PROCESS_CI_FAILED   
 
 def main():
     parser = argparse.ArgumentParser(description="Automate k8s-operator charm release process.")
     parser.add_argument("--ignored-tracks", nargs="*", default=[], help="List of tracks to ignore")
-    parser.add_argument("--ignored-archs", nargs="*", default=[], help="List of archs to ignore")
     args = parser.parse_args()
 
     tracks = get_tracks()
-    archs = get_supported_archs()
     
     results = {}
     for track in tracks:
@@ -146,16 +168,10 @@ def main():
             print(f"Skipping ignored track: {track}")
             continue
 
-        for arch in archs:
-            if arch in args.ignored_archs:
-                print(f"Skipping ignored arch: {arch}")
-                continue
-              
-            
-            process_state = process_track(track, arch)
-            if process_state in [ProcessState.PROCESS_IN_PROGRESS, ProcessState.PROCESS_UNCHANGED]:
-                continue    
-            results[f"{track}-{arch}"] = str(process_state)
+        process_state = process_track(track)
+        if process_state in [ProcessState.PROCESS_IN_PROGRESS, ProcessState.PROCESS_UNCHANGED]:
+            continue    
+        results[f"{track}"] = str(process_state)
 
     with open("results.txt", "w") as f:
         for key, value in results.items():

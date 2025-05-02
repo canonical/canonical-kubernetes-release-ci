@@ -1,8 +1,9 @@
-import pytest
-
+from unittest.mock import MagicMock, patch
 from uuid import UUID
-from unittest.mock import patch, MagicMock
-from util.sqa import _product_versions, create_test_plan_instance, _test_plan_instances, TestPlanInstanceStatus
+
+import pytest
+from util.sqa import (TestPlanInstanceStatus, _product_versions,
+                      _test_plan_instances, create_test_plan_instance)
 
 
 @pytest.fixture
