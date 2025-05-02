@@ -11,3 +11,4 @@ production:
     smtp_port: 465
     smtp_server: smtp.canonical.com
     smtp_user: canonical
+
