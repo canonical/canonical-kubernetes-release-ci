@@ -15,8 +15,10 @@ K8S_OPERATOR_PRODUCT_UUID = "246d8ed3-b1dd-4875-a932-0cbc1b1c86b5"
 K8S_OPERATOR_TEST_PLAN_ID = "394fb5b6-1698-4226-bd3e-23b471ee1bd4"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
+
 class SQAFailure(Exception):
     pass
+
 
 @dataclass
 class Product:
@@ -25,10 +27,8 @@ class Product:
 
     @staticmethod
     def from_dict(data: dict) -> "Product":
-        return Product(
-            name=data["product.name"],
-            uuid=UUID(data["product.uuid"])
-        )
+        return Product(name=data["product.name"], uuid=UUID(data["product.uuid"]))
+
 
 @dataclass
 class ProductVersion:
@@ -47,8 +47,9 @@ class ProductVersion:
             product=Product.from_dict(product_data),
             version=data["version"],
             channel=data["channel"],
-            revision=data["revision"]
+            revision=data["revision"],
         )
+
 
 class TestPlanInstanceStatus(Enum):
     IN_PROGRESS = (1, "In Progress")
@@ -65,6 +66,9 @@ class TestPlanInstanceStatus(Enum):
     def __init__(self, state_id, name):
         self.state_id = state_id
         self.display_name = name
+
+    def __str__(self):
+        return f"{self.display_name}"
 
     @classmethod
     def from_name(cls, name):
@@ -87,6 +91,7 @@ class TestPlanInstanceStatus(Enum):
             TestPlanInstanceStatus.ERROR,
             TestPlanInstanceStatus.FAILURE,
         ]
+
 
 @dataclass
 class TestPlanInstance:
@@ -138,13 +143,15 @@ def create_product_version(channel: str, revision: str) -> ProductVersion:
         raise SQAFailure
 
     print(product_version_response.stdout)
-    product_versions = [ProductVersion.from_dict(item) for item in json.loads(product_version_response.stdout.strip())]
+    product_versions = [
+        ProductVersion.from_dict(item)
+        for item in json.loads(product_version_response.stdout.strip())
+    ]
 
     if not product_versions:
         print("Creating product version failed:")
         print("empty response")
-        raise SQAFailure         
-    
+        raise SQAFailure
 
     return product_versions[0]
 
@@ -167,20 +174,21 @@ def _create_test_plan_instance(product_version_uuid: str) -> TestPlanInstance:
         raise SQAFailure
 
     print(json_str := test_plan_instance_response.stdout)
-    end_index = json_str.rfind(']')  
+    end_index = json_str.rfind("]")
 
     if end_index != -1:
-        json_str = json_str[:end_index + 1]
-   
-    test_plan_instances = [TestPlanInstance.from_dict(item) for item in json.loads(json_str.strip())]
+        json_str = json_str[: end_index + 1]
+
+    test_plan_instances = [
+        TestPlanInstance.from_dict(item) for item in json.loads(json_str.strip())
+    ]
 
     if not test_plan_instances:
         print("Creating test plan instance failed:")
         print("empty response")
-        raise SQAFailure         
-    
+        raise SQAFailure
 
-    return test_plan_instances[0]    
+    return test_plan_instances[0]
 
 
 def _delete_test_plan_instance(uuid: UUID) -> None:
@@ -199,13 +207,15 @@ def _delete_test_plan_instance(uuid: UUID) -> None:
     print(test_plan_instance_response.stdout)
 
 
-def current_test_plan_instance(charm_name, channel, revision) -> Optional[TestPlanInstanceStatus]:
+def current_test_plan_instance_status(
+    charm_name, channel, revision
+) -> Optional[TestPlanInstanceStatus]:
     """
     First try to get any passed TPIs for the (channel, revision)
     If no passed TPI found, try to get in progress TPIs
     If no in progress TPI found, try to get failed/(in-)error TPIs
     If no failed TPI found, return None
-    The aborted TPIs are ignored since they don't semantically hold 
+    The aborted TPIs are ignored since they don't semantically hold
     any information about the state of a track
     """
     product_versions = _product_versions(charm_name, channel, revision)
@@ -213,34 +223,53 @@ def current_test_plan_instance(charm_name, channel, revision) -> Optional[TestPl
     if not product_versions:
         return None
 
-    passed_test_plan_instances = _joined_test_plan_instances(product_versions, TestPlanInstanceStatus.PASSED)
+    passed_test_plan_instances = _joined_test_plan_instances(
+        product_versions, TestPlanInstanceStatus.PASSED
+    )
     if passed_test_plan_instances:
         return TestPlanInstanceStatus.PASSED
-    
-    in_progress_test_plan_instances = _joined_test_plan_instances(product_versions, TestPlanInstanceStatus.IN_PROGRESS)
+
+    in_progress_test_plan_instances = _joined_test_plan_instances(
+        product_versions, TestPlanInstanceStatus.IN_PROGRESS
+    )
     if in_progress_test_plan_instances:
         return TestPlanInstanceStatus.IN_PROGRESS
-    
-    failed_test_plan_instances = _joined_test_plan_instances(product_versions, TestPlanInstanceStatus.FAILED)
+
+    failed_test_plan_instances = _joined_test_plan_instances(
+        product_versions, TestPlanInstanceStatus.FAILED
+    )
     if failed_test_plan_instances:
         return TestPlanInstanceStatus.FAILED
-    
-    in_error_test_plan_instances = _joined_test_plan_instances(product_versions, TestPlanInstanceStatus.ERROR)
+
+    in_error_test_plan_instances = _joined_test_plan_instances(
+        product_versions, TestPlanInstanceStatus.ERROR
+    )
     if in_error_test_plan_instances:
         return TestPlanInstanceStatus.ERROR
-    
+
     return None
 
-def _joined_test_plan_instances(product_versions: list[ProductVersion], status: TestPlanInstanceStatus) -> list[UUID]:
-    return [ins for product_version in product_versions for ins in _test_plan_instances(str(product_version.uuid), status)]
 
-def _test_plan_instances(productversion_uuid, status: TestPlanInstanceStatus) -> list[UUID]:
+def _joined_test_plan_instances(
+    product_versions: list[ProductVersion], status: TestPlanInstanceStatus
+) -> list[UUID]:
+    return [
+        ins
+        for product_version in product_versions
+        for ins in _test_plan_instances(str(product_version.uuid), status)
+    ]
+
+
+def _test_plan_instances(
+    productversion_uuid, status: TestPlanInstanceStatus
+) -> list[UUID]:
     test_plan_instances_cmd = f"weebl-tools.sqalab testplaninstance list --format json --productversion-uuid {productversion_uuid} --status '{status.display_name.lower()}'"
     matches = re.findall(r"'([^']*)'|(\S+)", test_plan_instances_cmd)
     refined_test_plan_instances_cmd = [m[0] if m[0] else m[1] for m in matches]
 
-
-    print(f"Getting test plan instances for product version {productversion_uuid}...")
+    print(
+        f"Getting test plan instances for product version {productversion_uuid} with status {status}..."
+    )
     print(refined_test_plan_instances_cmd)
 
     try:
@@ -253,7 +282,7 @@ def _test_plan_instances(productversion_uuid, status: TestPlanInstanceStatus) ->
         raise SQAFailure
 
     print(json_str := test_plan_instances_response.stdout)
-    start_index = json_str.rfind('{')  
+    start_index = json_str.rfind("{")
 
     if start_index != -1:
         json_str = json_str[start_index:]
@@ -265,12 +294,13 @@ def _test_plan_instances(productversion_uuid, status: TestPlanInstanceStatus) ->
 
     return uuids
 
+
 def _product_versions(charm_name, channel, revision) -> list[ProductVersion]:
     product_versions_cmd = f"weebl-tools.sqalab productversion list --name {charm_name} --channel {channel} --revision {revision} --format json"
 
     print(f"Getting product versions for channel {channel} revision {revision}")
     print(product_versions_cmd)
-    
+
     try:
         product_versions_response = subprocess.run(
             product_versions_cmd.split(" "), check=True, capture_output=True, text=True
@@ -281,18 +311,22 @@ def _product_versions(charm_name, channel, revision) -> list[ProductVersion]:
         raise SQAFailure
 
     print(product_versions_response.stdout)
-    product_versions = [ProductVersion.from_dict(item) for item in json.loads(product_versions_response.stdout.strip())]
+    product_versions = [
+        ProductVersion.from_dict(item)
+        for item in json.loads(product_versions_response.stdout.strip())
+    ]
     return product_versions
 
+
 def start_release_test(charm_name, channel, revision):
-    
     product_versions = _product_versions(charm_name, channel, revision)
     if product_versions:
-        print(f"using already defined product version {product_versions[0].uuid} to create TPI")
+        print(
+            f"using already defined product version {product_versions[0].uuid} to create TPI"
+        )
         product_version = product_versions[0]
     else:
         product_version = create_product_version(channel, revision)
 
-    
     test_plan_instance = _create_test_plan_instance(str(product_version.uuid))
     print(f"Started release test for {channel} with UUID: {test_plan_instance.uuid}")

@@ -80,3 +80,35 @@ def get_latest_releases_by_minor() -> Dict[str, str]:
             latest_by_minor[key] = tag
 
     return latest_by_minor
+
+
+def get_all_releases_after(release) -> set[str]:
+    """
+    Get all releases after the input release.
+    If the input release is invalid, the output will be empty.
+    """
+    releases: set[str] = set()
+    version_regex = re.compile(r"^v?(\d+)\.(\d+)\..+")
+
+    match = re.match(r"^(\d+)\.(\d+)$", release)
+    if not match:
+        return releases
+    least_major, least_minor = match.groups()
+
+    for tag in get_k8s_tags():
+        if not is_stable_release(tag):
+            continue
+        match = version_regex.match(tag)
+        if not match:
+            continue
+        major, minor = match.groups()
+
+        if major < least_major:
+            continue
+        elif major > least_major:
+            releases.add(f"{major}.{minor}")
+            continue
+        elif minor >= least_minor:
+            releases.add(f"{major}.{minor}")
+
+    return set(releases)

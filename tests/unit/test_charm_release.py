@@ -7,6 +7,7 @@ Scenarios:
 * New release in candidate channel; release run in progress -> abort current testplan and start new release run
 
 """
+
 from unittest.mock import MagicMock, patch
 
 import charm_release
@@ -18,10 +19,12 @@ def mock_sqa():
     with patch("util.sqa") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_charmhub():
     with patch("util.charmhub") as mock:
         yield mock
+
 
 def test_no_release_run(mock_sqa, mock_charmhub):
     """If there is no release run exists for the given track, a new one should be started."""
@@ -32,6 +35,7 @@ def test_no_release_run(mock_sqa, mock_charmhub):
     mock_sqa.start_release_test.assert_called_once_with("1.32")
     mock_sqa.abort_release_test.assert_not_called()
     mock_charmhub.promote_charm_revisions.assert_not_called()
+
 
 @pytest.mark.skip("Not implemented yet")
 def test_no_new_release_no_action(mock_sqa, mock_charmhub):
@@ -49,6 +53,7 @@ def test_no_new_release_no_action(mock_sqa, mock_charmhub):
     mock_sqa.start_release_test.assert_not_called()
     mock_sqa.abort_release_test.assert_not_called()
     mock_charmhub.promote_charm_revisions.assert_not_called()
+
 
 @pytest.mark.skip("Not implemented yet")
 def test_new_release_run_in_progress(mock_sqa, mock_charmhub):

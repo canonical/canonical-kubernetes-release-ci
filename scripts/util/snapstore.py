@@ -55,5 +55,3 @@ def create_track(snap_name: str, track_name: str) -> None:
     data = [{"name": track_name}]
     r = requests.post(url, headers=headers, json=data, timeout=TIMEOUT)
     r.raise_for_status()
-
-

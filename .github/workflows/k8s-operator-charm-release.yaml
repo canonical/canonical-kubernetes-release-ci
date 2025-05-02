@@ -19,10 +19,6 @@ jobs:
       CHARMCRAFT_AUTH: ${{ secrets.CHARMCRAFT_AUTH }}
       SQA_API_KEY: ${{ secrets.SQA_API_KEY }}
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
       - name: Checking out repo
         uses: actions/checkout@v4
       - name: Setup Python
@@ -60,6 +56,9 @@ jobs:
           name: results
       - name: Read results
         run: |
+          if [ ! -s results.txt ]; then
+            exit 0
+          fi
           ESCAPED=$(sed ':a;N;$!ba;s/\n/\\n/g' results.txt)
           echo "RESULTS_TEXT=$ESCAPED" >> $GITHUB_ENV
       - name: Notify Mattermost
