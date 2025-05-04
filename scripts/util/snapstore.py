@@ -1,7 +1,7 @@
 import json
 import logging
 
-import charmhub
+from . import charmhub
 import requests
 
 LOG = logging.getLogger(__name__)
