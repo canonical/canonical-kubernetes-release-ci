@@ -3,19 +3,33 @@ Script to automate the k8s-operator charms release process.
 
 The implementation works as a state machine that queries the current state of each track
 and then decides what to do next.The script is designed to be idempotent, meaning that it
-can be run multiple times without causing any harm. Note than the script is only checking
-the state of the last revision published on each track. That means if revisions n and n+1
-are published on a track, the automation only tries to reconcile the n+1 revision. Whatever
-state the revision n is in will be untouched.
+can be run multiple times without causing any harm.
 
-for each (track, arch):
-    get data for current (track, arch) state:
-        - extract latest revision on channel=<track>/candidate from (track, arch)
-        - extract latest revision on stable_channel=<track>/stable from (track, arch)
-        - skip if the latest revision on <track>/candidate is already published in <track>/stable
-        - get the (track, arch) state with corresponding (channel, revision) from SQA API
+For each track to be published on stable from candidate, there are more than one revisions 
+that need to be tested, each corresponding to a unique (arch, base) for which a revision has
+been published. We call the set of all such revisions a revision matrix of a track. For example 
+track 1.32 can have the following matrix of revisions on candidate risk level:
 
-    track with corresponding (channel, revision) is in one of the following states:
+        20.04   22.04   24.04
+amd64   741     742     743
+arm64   736     748     750
+
+And the following matrix of revisions published on stable:
+
+        20.04   22.04   24.04
+amd64   456     457     458
+arm64   459     460     461
+
+The goal is to promote all 6 revisions of the 1.32/candidate to 1.32/stable
+
+for each track:
+    get data for current track state:
+        - extract all the revisions corresponding to each (arch, base) published on channel=<track>/candidate
+        - extract all the revisions corresponding to each (arch, base) published on stable_channel=<track>/stable
+        - skip if the revisions on <track>/candidate are already published in <track>/stable
+        - for each (arch, base) revision on channel=<track>/candidate try the following reconcililation pattern:
+
+    revision is in one of the following states:
         - no TPIs yet -> NO_TEST
         - at least one TPI succeeded -> TEST_SUCCESS
         - at least one TPI in progress -> TEST_IN_PROGRESS
@@ -27,11 +41,10 @@ for each (track, arch):
         - TEST_SUCCESS: promote the charm revisions to the next channel
         - TEST_FAILED: manual intervention with SQA required
 
-
-Question:
-* Long-term, will there be different testplans for Canonical Kubernetes and Charmed Kubernetes or are we
-  just replacing the product under test via addons?
-* Why can I set the status of a testplaninstance when adding it? Isn't that the responsibility of the test scheduler?
+    aggregate the results for all the revisions checked for each track:
+        - If all revisions have TEST_SUCCESS then report the track state as succeeded 
+        - If any of the revisions have TEST_FAILED then report the track state as failed 
+        - If some of the tests are still in TEST_IN_PROGRESS report the track as in progress
 
 TODOs:
 * Support testing different architectures once SQA provides the feature
