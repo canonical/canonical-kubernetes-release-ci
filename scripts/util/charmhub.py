@@ -116,6 +116,6 @@ def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:
 def promote_charm(charm_name, from_channel, to_channel):
     """Promote a charm from one channel to another."""
     subprocess.run(
-        ["charmcraft", "promote", charm_name, from_channel, to_channel],
+        ["/snap/bin/charmcraft", "promote", charm_name, from_channel, to_channel],
         check=True,
     )

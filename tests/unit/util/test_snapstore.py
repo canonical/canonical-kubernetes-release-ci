@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
+import util.charmhub as charmhub
 import util.snapstore as snapstore
 
 
@@ -51,7 +52,7 @@ def test_ensure_track_create(mock_create_track):
 
 
 @patch("util.snapstore.requests.post")
-@patch("util.snapstore.get_charmhub_auth_macaroon", return_value="mock-macaroon")
+@patch("util.charmhub.get_charmhub_auth_macaroon", return_value="mock-macaroon")
 def test_create_track(mock_get_auth, mock_post):
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -72,16 +73,16 @@ def test_create_track(mock_get_auth, mock_post):
 
 
 @patch(
-    "util.snapstore.os.getenv",
+    "util.charmhub.os.getenv",
     return_value=base64.b64encode(b'{"v": "mock-macaroon"}').decode(),
 )
 def test_get_charmhub_auth_macaroon(mock_getenv):
-    result = snapstore.get_charmhub_auth_macaroon()
+    result = charmhub.get_charmhub_auth_macaroon()
     assert result == "mock-macaroon"
     mock_getenv.assert_called_once_with("CHARMCRAFT_AUTH")
 
 
-@patch("util.snapstore.os.getenv", return_value=None)
+@patch("util.charmhub.os.getenv", return_value=None)
 def test_get_charmhub_auth_macaroon_missing(mock_getenv):
     with pytest.raises(ValueError, match="Missing charmhub credentials"):
-        snapstore.get_charmhub_auth_macaroon()
+        charmhub.get_charmhub_auth_macaroon()

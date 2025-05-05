@@ -1,12 +1,12 @@
 import datetime
 import json
-import re
-import subprocess
 import shlex
-from pydantic import BaseModel, Field, field_validator, TypeAdapter
+import subprocess
 from enum import StrEnum
 from typing import Optional
 from uuid import UUID
+
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 # Currently this is tribal knowledge, eventually this should appear in the SQA docs:
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html
@@ -74,7 +74,7 @@ class TestPlanInstance(BaseModel):
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod
-    def parse_datetime(cls, v: str) -> datetime:
+    def parse_datetime(cls, v: str) -> datetime.datetime:
         return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
 
     @field_validator("status", mode="before")
@@ -237,7 +237,7 @@ def start_release_test(charm_name, channel, revision):
 def _weebl_run(*args, **kwds) -> str:
     kwds = {"text": True, "check": True, "capture_output": True, **kwds}
     try:
-        response = subprocess.run(["weebl-tools.sqalab", *args], **kwds)
+        response = subprocess.run(["/snap/bin/weebl-tools.sqalab", *args], **kwds)
     except subprocess.CalledProcessError as e:
         print(f"{args[0]} failed:")
         print(e.stderr)

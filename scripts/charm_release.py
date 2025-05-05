@@ -172,7 +172,7 @@ def main():
         description="Automate k8s-operator charm release process."
     )
     parser.add_argument(
-        "--dry-run", action="store_true", help="Dry run the charm release process"
+        "--dry-run", action="store_true", required=False, help="Dry run the charm release process"
     )
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(

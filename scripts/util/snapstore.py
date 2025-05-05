@@ -1,8 +1,9 @@
 import json
 import logging
 
-from . import charmhub
 import requests
+
+from . import charmhub
 
 LOG = logging.getLogger(__name__)
 INFO_URL = "https://api.snapcraft.io/v2/snaps/info/"
