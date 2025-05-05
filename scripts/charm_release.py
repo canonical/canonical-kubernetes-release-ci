@@ -100,7 +100,10 @@ def ensure_track_state(
     for arch in revision_matrix.get_archs():
         # Note(Reza): Currently SQA only supports the test for the amd64 architecture
         # we should differentiate the TPIs for different architectures once arm64 is
-        # also supported.
+        # also supported. I have not put that in a file to avoid creating a perception 
+        # that more than one architecture could be tested. Having more than one arch
+        # would break the pipeline by creating duplicates as there are no ways to 
+        # distinguish test environments for architectures on SQA side. 
         if arch != "amd64":
             continue
 
