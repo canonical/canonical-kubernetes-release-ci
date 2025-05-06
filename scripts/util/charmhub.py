@@ -9,8 +9,6 @@ import requests
 
 LOG = logging.getLogger(__name__)
 
-INFO_URL = "https://api.charmhub.io/v1/charm/k8s/releases"
-
 # Timeout for Store API request in seconds
 TIMEOUT = 10
 
@@ -89,13 +87,13 @@ def get_charmhub_auth_macaroon() -> str:
 
 def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:
     """Get the revision of a charm in a channel."""
-    auth_macaroon = get_charmhub_auth_macaroon()
     headers = {
-        "Authorization": f"Macaroon {auth_macaroon}",
         "Content-Type": "application/json",
     }
     print(f"Querying Charmhub to get revisions of {charm_name} in {channel}...")
-    r = requests.get(INFO_URL, headers=headers, timeout=TIMEOUT)
+    
+    url = f"https://api.charmhub.io/v2/charms/info/{charm_name}?fields=channel-map"
+    r = requests.get(url, headers=headers, timeout=TIMEOUT)
     r.raise_for_status()
 
     data = json.loads(r.text)
@@ -103,11 +101,12 @@ def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:
 
     revision_matrix = RevisionMatrix()
     for channel_map in data.get("channel-map", []):
-        if channel == channel_map["channel"]:
+        
+        if channel == channel_map["channel"]["name"]:
             revision_matrix.set(
-                channel_map["base"]["architecture"],
-                channel_map["base"]["channel"],
-                int(channel_map["revision"]),
+                channel_map["channel"]["base"]["architecture"],
+                channel_map["channel"]["base"]["channel"],
+                int(channel_map["revision"]["revision"]),
             )
 
     return revision_matrix
