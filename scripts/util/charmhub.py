@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import subprocess
+import random
 from collections import defaultdict
 
 import requests
@@ -12,6 +13,83 @@ LOG = logging.getLogger(__name__)
 # Timeout for Store API request in seconds
 TIMEOUT = 10
 
+class Bundle:
+    """
+    Bundle defines a set of charms that need to be tested together. 
+    For example k8s-operator bundle consists of two charms, namely,
+    k8s and k8s-worker charms
+    """
+    
+    def __init__(self):
+        self.data: defaultdict[str, RevisionMatrix] = defaultdict(dict)
+
+    def set(self, charm, revision_matrix):
+        self.data[charm] = revision_matrix
+
+    def is_testable(self):
+        if not len(self.data) or any(matrix is None for matrix in self.data.values()):
+            return False
+        
+        # All the matrices in a bundle must have the same span of arch and bases 
+        # and have a revision values for each (arch, base) so that they can be 
+        # tested alongside each other.
+        item: RevisionMatrix = random.choice(list(self.data.values()))
+        
+        bases = item.get_bases()
+        archs = item.get_archs()
+
+        for revision_matrix in self.data.values():
+            if revision_matrix.get_bases() != bases or revision_matrix.get_archs() != archs:
+                return False
+            
+            for base in bases:
+                for arch in archs:
+                    if item.get(arch, base) and not revision_matrix.get(arch, base):
+                            return False
+                    
+        return True
+
+    def get_bases(self):
+        try:
+            item: RevisionMatrix = random.choice(list(self.data.values()))
+            return item.get_bases()
+        except StopIteration:
+            return set()
+        
+    def get_archs(self):
+        try:
+            item: RevisionMatrix = random.choice(list(self.data.values()))
+            return item.get_archs()
+        except StopIteration:
+            return set()
+    
+    def get_revisions(self, arch, base):
+        revisions = {}
+
+        for charm in self.data.keys():
+            revisions[f"{charm.replace("-", "_")}_revision"] = self.data[charm].get(arch, base)
+
+        return revisions
+
+    def get_version(self, arch, base):
+        
+        charms = sorted(self.data.keys())
+        if not charms:
+            return None
+
+        version = "k8s-operator"
+        for charm in charms:
+            revision_matrix = self.data[charm]
+            if not revision_matrix:
+                return None
+                
+            revision = revision_matrix.get(arch, base)
+            if not revision:
+                return None
+
+            version += f"-{charm}-{revision}"
+
+        return version
 
 class RevisionMatrix:
     """
@@ -29,7 +107,7 @@ class RevisionMatrix:
         self.data[arch][base] = revision
 
     def get_archs(self):
-        return list(self.data.keys())
+        return set(self.data.keys())
 
     def get_bases(self):
         bases: set[str] = set()

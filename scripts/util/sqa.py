@@ -2,11 +2,15 @@ import datetime
 import json
 import shlex
 import subprocess
+import tempfile
+import os
 from enum import StrEnum
 from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
+from jinja2 import Environment, FileSystemLoader
+
 
 # Currently this is tribal knowledge, eventually this should appear in the SQA docs:
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html
@@ -18,6 +22,20 @@ K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
 class SQAFailure(Exception):
     pass
+
+class Addon(BaseModel):
+    id: str
+    name: str
+    file: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+    uuid: UUID
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def parse_datetime(cls, v: str) -> datetime.datetime:
+        return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
+
 
 class ProductVersion(BaseModel):
     uuid: UUID
@@ -83,10 +101,10 @@ class TestPlanInstance(BaseModel):
         return TestPlanInstanceStatus.from_name(v)
 
 
-def _create_product_version(channel: str, revision: str) -> ProductVersion:
-    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --revision {revision}"
+def _create_product_version(channel: str, version: str) -> ProductVersion:
+    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --version {version}"
 
-    print(f"Creating product version for channel {channel} revision {revision}...")
+    print(f"Creating product version for channel {channel} vision {version}...")
     print(product_version_cmd)
 
     product_version_response = _weebl_run(*shlex.split(product_version_cmd))
@@ -103,8 +121,8 @@ def _create_product_version(channel: str, revision: str) -> ProductVersion:
     return product_versions[0]
 
 
-def _create_test_plan_instance(product_version_uuid: str) -> TestPlanInstance:
-    test_plan_instance_cmd = f"testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --status 'In Progress' --base_priority 3 --product_under_test {product_version_uuid}"
+def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str) -> TestPlanInstance:
+    test_plan_instance_cmd = f"testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --addon_id {addon_uuid} --status 'In Progress' --base_priority 3 --product_under_test {product_version_uuid}"
 
     print(f"Creating test plan instance for product version {product_version_uuid}...")
     print(test_plan_instance_cmd)
@@ -129,7 +147,7 @@ def _create_test_plan_instance(product_version_uuid: str) -> TestPlanInstance:
 
 
 def current_test_plan_instance_status(
-    charm_name, channel, revision
+    channel, version
 ) -> Optional[TestPlanInstanceStatus]:
     """
     First try to get any passed TPIs for the (channel, revision)
@@ -139,7 +157,7 @@ def current_test_plan_instance_status(
     The aborted TPIs are ignored since they don't semantically hold
     any information about the state of a track
     """
-    product_versions = _product_versions(charm_name, channel, revision)
+    product_versions = _product_versions(channel, version)
 
     if not product_versions:
         return None
@@ -207,10 +225,10 @@ def _test_plan_instances(
     return uuids
 
 
-def _product_versions(charm_name, channel, revision) -> list[ProductVersion]:
-    product_versions_cmd = f"productversion list --name {charm_name} --channel {channel} --revision {revision} --format json"
+def _product_versions(channel, version) -> list[ProductVersion]:
+    product_versions_cmd = f"productversion list --channel {channel} --version {version} --format json"
 
-    print(f"Getting product versions for channel {channel} revision {revision}")
+    print(f"Getting product versions for channel {channel} version {version}")
     print(product_versions_cmd)
 
     product_versions_response = _weebl_run(*shlex.split(product_versions_cmd))
@@ -221,18 +239,70 @@ def _product_versions(charm_name, channel, revision) -> list[ProductVersion]:
     return product_versions
 
 
-def start_release_test(charm_name, channel, revision):
-    product_versions = _product_versions(charm_name, channel, revision)
+def start_release_test(channel, base, arch, revisions, version):
+    product_versions = _product_versions(channel, version)
     if product_versions:
         print(
             f"using already defined product version {product_versions[0].uuid} to create TPI"
         )
         product_version = product_versions[0]
     else:
-        product_version = _create_product_version(channel, revision)
+        product_version = _create_product_version(channel, version)
 
-    test_plan_instance = _create_test_plan_instance(str(product_version.uuid))
+    variables = {
+        "base": base,
+        "arch": arch,
+        "channel": channel,
+        **revisions
+    }
+
+    addon = _create_addon(version, variables)
+
+    test_plan_instance = _create_test_plan_instance(str(product_version.uuid), str(addon.uuid))
     print(f"Started release test for {channel} with UUID: {test_plan_instance.uuid}")
+
+
+def _create_addon(version, variables) -> Addon:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # the name of the addon dir must be 'addon'
+        addon_dir = os.path.join(temp_dir, "addon")
+        os.makedirs(addon_dir)
+        
+        config_dir = os.path.join(addon_dir, "config")
+        os.makedirs(config_dir)  
+
+        print(f"addon directory created at: {config_dir}")
+
+        env = Environment(loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"))
+        template_files = env.list_templates(extensions="j2")
+
+        for template_name in template_files:
+            template = env.get_template(template_name)
+            rendered = template.render(variables)
+            
+            output_filename = os.path.splitext(template_name)[0]
+            output_path = os.path.join(config_dir, output_filename)
+
+            with open(output_path, "w") as f:
+                f.write(rendered)
+        
+        create_addon_cmd = f"addon add --addon {addon_dir} --name {version}"
+
+        print(f"Creating an addon for version {version}")
+        print(create_addon_cmd)
+
+        create_addon_response = _weebl_run(*shlex.split(create_addon_cmd))
+
+    print(create_addon_response)
+    adapter = TypeAdapter(list[Addon])
+    addons = adapter.validate_json(create_addon_response.strip())
+
+    if not addons:
+        print("Creating addon failed:")
+        print("empty response")
+        raise SQAFailure
+
+    return addons[0]
 
 def _weebl_run(*args, **kwds) -> str:
     kwds = {"text": True, "check": True, "capture_output": True, **kwds}

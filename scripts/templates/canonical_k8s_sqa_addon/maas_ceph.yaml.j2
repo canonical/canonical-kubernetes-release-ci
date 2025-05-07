@@ -1,0 +1,39 @@
+k8s:
+    units: 3
+    base: ubuntu@{{ base }}
+    constraints: arch=amd64 cores=2 mem=8192M root-disk=16384M allocate-public-ip=true
+    channel: {{ channel }}
+    revision: {{ k8s_revision }}
+    config:
+      containerd-custom-registries: '[{ "url": "http://10.131.231.165:5000", "host": "docker.io" }, {"url": "http://10.131.231.169:5000", "host": "registry.k8s.io"}]'
+k8s-worker:
+    units: 3
+    base: ubuntu@{{ base }}
+    constraints: arch=amd64 cores=2 mem=8192M root-disk=16384M allocate-public-ip=true
+    channel: {{ channel }}
+    revision: {{ k8s_worker_revision }}
+ceph-csi:
+  csi_integration: ceph
+  cluster-name: main
+  channel: latest/edge
+  base: ubuntu@22.04
+ceph-mon:
+  csi_integration: ceph
+  cluster-name: main
+  channel: quincy/stable
+  base: ubuntu@22.04
+  constraints: arch=amd64 cores=2 mem=4096M root-disk=16384M
+  units: 1
+  config:
+    monitor-count: 1
+    expected-osd-count: 2
+ceph-osd:
+  csi_integration: ceph
+  cluster-name: main
+  channel: quincy/stable
+  base: ubuntu@22.04
+  constraints: arch=amd64 cores=2 mem=4096M root-disk=16384M
+  units: 2
+  storage:
+    osd-devices: 1G,1
+    osd-journals: 1G,1

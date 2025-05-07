@@ -63,10 +63,10 @@ class TrackState:
     def __init__(self):
         self._state_map: Dict[str, sqa.TestPlanInstanceStatus] = {}
 
-    def set_state(self, revision, state: sqa.TestPlanInstanceStatus):
+    def set_state(self, version, state: sqa.TestPlanInstanceStatus):
         if not isinstance(state, sqa.TestPlanInstanceStatus):
             raise ValueError("State must be an instance of TestPlanInstanceStatus")
-        self._state_map[revision] = state
+        self._state_map[version] = state
 
     def __str__(self):
         return str([(key, str(value)) for key, value in self._state_map.items()])
@@ -93,11 +93,14 @@ class ProcessState(StrEnum):
     PROCESS_CI_FAILED = auto()
     PROCESS_UNCHANGED = auto()
 
+def get_charms():
+    return ["k8s", "k8s-worker"]
 
 def ensure_track_state(
-    charm_name, channel, revision_matrix: charmhub.RevisionMatrix, dry_run: bool
+    channel, bundle: charmhub.Bundle, dry_run: bool
 ) -> TrackState:
-    for arch in revision_matrix.get_archs():
+    track_state = TrackState()
+    for arch in bundle.get_archs():
         # Note(Reza): Currently SQA only supports the test for the amd64 architecture
         # we should differentiate the TPIs for different architectures once arm64 is
         # also supported. I have not put that in a file to avoid creating a perception 
@@ -107,22 +110,25 @@ def ensure_track_state(
         if arch != "amd64":
             continue
 
-        track_state = TrackState()
-        for base in revision_matrix.get_bases():
-            revision = revision_matrix.get(arch, base)
-            if not revision:
+        for base in bundle.get_bases():
+            version = bundle.get_version(arch, base)
+            if not version:
                 continue
-
+            
+            print(f"Checking if there is any TPIs for ({channel}, {arch}, {base})")
             current_test_plan_instance_status = sqa.current_test_plan_instance_status(
-                charm_name, channel, revision
+                channel, version
             )
             if not current_test_plan_instance_status:
+                revisions = bundle.get_revisions(arch, base)
+                print(f"No TPI found. Creating a new TPI for the following revisions: {revisions}")
+                
                 if not dry_run:
-                    sqa.start_release_test(charm_name, channel, revision)
-                track_state.set_state(revision, sqa.TestPlanInstanceStatus.IN_PROGRESS)
+                    sqa.start_release_test(channel, base, arch, revisions, version)
+                track_state.set_state(version, sqa.TestPlanInstanceStatus.IN_PROGRESS)
                 continue
 
-            track_state.set_state(revision, current_test_plan_instance_status)
+            track_state.set_state(version, current_test_plan_instance_status)
 
     return track_state
 
@@ -132,42 +138,59 @@ def process_track(track: str, dry_run: bool) -> ProcessState:
 
     candidate_channel = f"{track}/candidate"
     stable_channel = f"{track}/stable"
-
+    k8s_operator_bundle = charmhub.Bundle()
+    at_least_one_charm_in_candidate = False
     try:
-        candidate_revision_matrix = charmhub.get_revision_matrix(
-            "k8s", candidate_channel
-        )
-        print(f"Channel {candidate_channel} revisions:")
-        print(candidate_revision_matrix)
+        for charm in get_charms():
+            print(f"Getting revisions for {charm} charm on track {track}")
+            candidate_revision_matrix = charmhub.get_revision_matrix(
+                charm, candidate_channel
+            )
+            print(f"Channel {candidate_channel} revisions:")
+            print(candidate_revision_matrix)
 
-        stable_revision_matrix = charmhub.get_revision_matrix("k8s", stable_channel)
-        print(f"Channel {stable_channel} reversions:")
-        print(stable_revision_matrix)
+            stable_revision_matrix = charmhub.get_revision_matrix(charm, stable_channel)
+            print(f"Channel {stable_channel} reversions:")
+            print(stable_revision_matrix)
+
+            if not candidate_revision_matrix:
+                print(f"The channel {candidate_channel} of {charm} has no revisions.")
+                k8s_operator_bundle.set(charm, None)
+                continue
+
+            if candidate_revision_matrix == stable_revision_matrix:
+                print(
+                    f"The channel {candidate_channel} of {charm} is already published in {stable_channel}."
+                )
+                k8s_operator_bundle.set(charm, stable_revision_matrix)
+                continue
+            at_least_one_charm_in_candidate = True
+            k8s_operator_bundle.set(charm, candidate_revision_matrix)
+
+            
     except HTTPError as e:
         print(f"failed to get charm revisions: {e}")
         return ProcessState.PROCESS_CI_FAILED
 
-    if not candidate_revision_matrix:
-        print(f"The channel {candidate_channel} has no revisions. Skipping...")
+    if not k8s_operator_bundle.is_testable():
+        print(f"k8s operator has a missing charm in track {track}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
-
-    if candidate_revision_matrix == stable_revision_matrix:
-        print(
-            f"The channel {candidate_channel} is already published in {stable_channel}. Skipping..."
-        )
+    
+    if not at_least_one_charm_in_candidate:
+        print(f"no charm has candidate revisions on track {track}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
-
+    
     try:
         state = ensure_track_state(
-            "k8s", candidate_channel, candidate_revision_matrix, dry_run
+            candidate_channel, k8s_operator_bundle, dry_run
         )
         print(f"Track {track} is in state: {state}")
 
         if state.succeeded:
             print(f"Release run for {track} succeeded. Promoting charm revisions...")
             if not dry_run:
-                charmhub.promote_charm("k8s", candidate_channel, stable_channel)
-                charmhub.promote_charm("k8s-worker", candidate_channel, stable_channel)
+                for charm in get_charms():
+                    charmhub.promote_charm(charm, candidate_channel, stable_channel)
             return ProcessState.PROCESS_SUCCESS
         elif state.in_progress:
             print(f"Release run for {track} is still in progress. No action needed.")
