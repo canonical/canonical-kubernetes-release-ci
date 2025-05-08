@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 # Currently this is tribal knowledge, eventually this should appear in the SQA docs:
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html
-K8S_OPERATOR_PRODUCT_UUID = "246d8ed3-b1dd-4875-a932-0cbc1b1c86b5"
+K8S_OPERATOR_PRODUCT_UUID = "3a8046a8-ef27-4ec7-a8a3-af6f470b96d7"
 
 K8S_OPERATOR_TEST_PLAN_ID = "394fb5b6-1698-4226-bd3e-23b471ee1bd4"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
@@ -74,8 +74,7 @@ class TestPlanInstanceStatus(StrEnum):
     @property
     def failed(self):
         return self in [
-            TestPlanInstanceStatus.ERROR,
-            TestPlanInstanceStatus.FAILURE,
+            TestPlanInstanceStatus.FAILED,
         ]
 
 
@@ -181,11 +180,6 @@ def current_test_plan_instance_status(
     if failed_test_plan_instances:
         return TestPlanInstanceStatus.FAILED
 
-    in_error_test_plan_instances = _joined_test_plan_instances(
-        product_versions, TestPlanInstanceStatus.ERROR
-    )
-    if in_error_test_plan_instances:
-        return TestPlanInstanceStatus.ERROR
 
     return None
 
@@ -268,7 +262,8 @@ def start_release_test(channel, base, arch, revisions, version):
 
 
 def _create_addon(version, variables) -> Addon:
-    with tempfile.TemporaryDirectory() as temp_dir:
+    home_dir = os.path.expanduser("~")
+    with tempfile.TemporaryDirectory(dir=home_dir, delete=False) as temp_dir:
         # the name of the addon dir must be 'addon'
         addon_dir = os.path.join(temp_dir, "addon")
         os.makedirs(addon_dir)
@@ -276,7 +271,7 @@ def _create_addon(version, variables) -> Addon:
         config_dir = os.path.join(addon_dir, "config")
         os.makedirs(config_dir)  
 
-        print(f"addon directory created at: {config_dir}")
+        print(f"addon directory created at: {addon_dir}")
 
         env = Environment(loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"))
         template_files = env.list_templates(extensions="j2")
@@ -291,7 +286,7 @@ def _create_addon(version, variables) -> Addon:
             with open(output_path, "w") as f:
                 f.write(rendered)
         
-        create_addon_cmd = f"addon add --addon {addon_dir} --name {version}"
+        create_addon_cmd = f"addon add --addon {addon_dir} --name {version} --format json"
 
         print(f"Creating an addon for version {version}")
         print(create_addon_cmd)
