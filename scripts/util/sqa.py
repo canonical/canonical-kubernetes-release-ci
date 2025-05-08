@@ -108,8 +108,8 @@ def _create_product_version(channel: str, base: str, arch: str, version: str) ->
     product_version_response = _weebl_run(*shlex.split(product_version_cmd))
 
     print(product_version_response)
-    adapter = TypeAdapter(list[ProductVersion])
-    product_versions = adapter.validate_json(product_version_response.strip())
+    product_versions = parse_response_lists(ProductVersion, product_version_response)
+
 
     if not product_versions:
         raise SQAFailure("no product version returned from create command")
@@ -134,8 +134,8 @@ def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str) -> Te
     if end_index != -1:
         json_str = json_str[: end_index + 1]
 
-    adapter = TypeAdapter(list[TestPlanInstance])
-    test_plan_instances = adapter.validate_json(json_str.strip())
+    test_plan_instances = parse_response_lists(TestPlanInstance, json_str)
+
 
     if not test_plan_instances:
         raise SQAFailure("no test plan instance returned from create command")
@@ -229,8 +229,8 @@ def _product_versions(channel, version) -> list[ProductVersion]:
     product_versions_response = _weebl_run(*shlex.split(product_versions_cmd))
    
     print(product_versions_response)
-    adapter = TypeAdapter(list[ProductVersion])
-    product_versions = adapter.validate_json(product_versions_response.strip())
+    product_versions = parse_response_lists(ProductVersion, product_versions_response)
+
     return product_versions
 
 
@@ -297,8 +297,7 @@ def _create_addon(version, variables) -> Addon:
         create_addon_response = _weebl_run(*shlex.split(create_addon_cmd))
 
     print(create_addon_response)
-    adapter = TypeAdapter(list[Addon])
-    addons = adapter.validate_json(create_addon_response.strip())
+    addons = parse_response_lists(Addon, create_addon_response)
 
     if not addons:
         raise SQAFailure("no addon returned from create command")
@@ -317,3 +316,8 @@ def _weebl_run(*args, **kwds) -> str:
         print(e.stderr)
         raise SQAFailure
     return response.stdout
+
+def parse_response_lists(model, response_str: str) -> list:
+    adapter = TypeAdapter(list[model])
+    parsed_response = adapter.validate_json(response_str.strip())
+    return parsed_response
