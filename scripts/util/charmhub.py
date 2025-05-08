@@ -2,8 +2,8 @@ import base64
 import json
 import logging
 import os
-import subprocess
 import random
+import subprocess
 from collections import defaultdict
 
 import requests
@@ -21,7 +21,7 @@ class Bundle:
     """
     
     def __init__(self):
-        self.data: defaultdict[str, RevisionMatrix] = defaultdict(dict)
+        self.data: defaultdict[str, RevisionMatrix] = defaultdict(None)
 
     def set(self, charm, revision_matrix):
         self.data[charm] = revision_matrix

@@ -1,16 +1,15 @@
 import datetime
 import json
+import os
 import shlex
 import subprocess
 import tempfile
-import os
 from enum import StrEnum
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, TypeAdapter, field_validator
 from jinja2 import Environment, FileSystemLoader
-
+from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 # Currently this is tribal knowledge, eventually this should appear in the SQA docs:
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html

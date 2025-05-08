@@ -2,8 +2,9 @@ from unittest.mock import patch
 from uuid import UUID
 
 import pytest
-from util.sqa import (TestPlanInstanceStatus, _create_test_plan_instance,
-                      _product_versions, _test_plan_instances, _create_addon)
+from util.sqa import (TestPlanInstanceStatus, _create_addon,
+                      _create_test_plan_instance, _product_versions,
+                      _test_plan_instances)
 
 
 @pytest.fixture

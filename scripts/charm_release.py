@@ -93,9 +93,6 @@ class ProcessState(StrEnum):
     PROCESS_CI_FAILED = auto()
     PROCESS_UNCHANGED = auto()
 
-def get_charms():
-    return ["k8s", "k8s-worker"]
-
 def ensure_track_state(
     channel, bundle: charmhub.Bundle, dry_run: bool
 ) -> TrackState:
@@ -133,7 +130,7 @@ def ensure_track_state(
     return track_state
 
 
-def process_track(track: str, dry_run: bool) -> ProcessState:
+def process_track(bundle_charms: list[str], track: str, dry_run: bool) -> ProcessState:
     """Process the given track based on its current state."""
 
     candidate_channel = f"{track}/candidate"
@@ -141,7 +138,7 @@ def process_track(track: str, dry_run: bool) -> ProcessState:
     k8s_operator_bundle = charmhub.Bundle()
     at_least_one_charm_in_candidate = False
     try:
-        for charm in get_charms():
+        for charm in bundle_charms:
             print(f"Getting revisions for {charm} charm on track {track}")
             candidate_revision_matrix = charmhub.get_revision_matrix(
                 charm, candidate_channel
@@ -189,7 +186,7 @@ def process_track(track: str, dry_run: bool) -> ProcessState:
         if state.succeeded:
             print(f"Release run for {track} succeeded. Promoting charm revisions...")
             if not dry_run:
-                for charm in get_charms():
+                for charm in bundle_charms:
                     charmhub.promote_charm(charm, candidate_channel, stable_channel)
             return ProcessState.PROCESS_SUCCESS
         elif state.in_progress:
@@ -213,6 +210,9 @@ def main():
     parser.add_argument(
         "--dry-run", action="store_true", required=False, help="Dry run the charm release process"
     )
+    parser.add_argument(
+        "--charms", nargs="+", default=["k8s", "k8s-worker"], help="List of charms used in k8s-operator"
+    )
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
         "--supported-tracks", nargs="+", default=[], help="List of tracks to check for"
@@ -220,7 +220,7 @@ def main():
     group.add_argument("--after", nargs=1, default="1.32", help="Least supported track")
 
     args = parser.parse_args()
-    print(args)
+    
     if args.supported_tracks:
         tracks = args.supported_tracks
     else:
@@ -231,11 +231,11 @@ def main():
         print("No tracks found for charm release process. Skipping...")
         return
 
-    print(f"Starting the charm release process for: {tracks}")
+    print(f"Starting the charms {args.charms} release process for: {tracks}")
 
     results = {}
     for track in tracks:
-        process_state = process_track(track, args.dry_run)
+        process_state = process_track(args.charms, track, args.dry_run)
         if process_state in [
             ProcessState.PROCESS_IN_PROGRESS,
             ProcessState.PROCESS_UNCHANGED,
