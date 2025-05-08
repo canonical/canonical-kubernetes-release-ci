@@ -113,9 +113,10 @@ def _create_product_version(channel: str, version: str) -> ProductVersion:
     product_versions = adapter.validate_json(product_version_response.strip())
 
     if not product_versions:
-        print("Creating product version failed:")
-        print("empty response")
-        raise SQAFailure
+        raise SQAFailure("no product version returned from create command")
+    
+    if len(product_versions) > 1:
+        raise SQAFailure("Too many product versions from create command")
 
     return product_versions[0]
 
@@ -138,9 +139,10 @@ def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str) -> Te
     test_plan_instances = adapter.validate_json(json_str.strip())
 
     if not test_plan_instances:
-        print("Creating test plan instance failed:")
-        print("empty response")
-        raise SQAFailure
+        raise SQAFailure("no test plan instance returned from create command")
+    
+    if len(test_plan_instances) > 1:
+        raise SQAFailure("Too many test plan instance from create command")
 
     return test_plan_instances[0]
 
@@ -241,9 +243,13 @@ def _product_versions(channel, version) -> list[ProductVersion]:
 def start_release_test(channel, base, arch, revisions, version):
     product_versions = _product_versions(channel, version)
     if product_versions:
+        if len(product_versions) > 1:
+            raise SQAFailure(f"the ({channel, base, arch}) is supposed to have only one product version for version {version}")
+
         print(
             f"using already defined product version {product_versions[0].uuid} to create TPI"
         )
+
         product_version = product_versions[0]
     else:
         product_version = _create_product_version(channel, version)
@@ -297,9 +303,10 @@ def _create_addon(version, variables) -> Addon:
     addons = adapter.validate_json(create_addon_response.strip())
 
     if not addons:
-        print("Creating addon failed:")
-        print("empty response")
-        raise SQAFailure
+        raise SQAFailure("no addon returned from create command")
+    
+    if len(addons) > 1:
+        raise SQAFailure("Too many addons from create command")
 
     return addons[0]
 
