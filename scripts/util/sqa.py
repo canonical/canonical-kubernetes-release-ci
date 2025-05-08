@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Optional
 from uuid import UUID
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
 
 # Currently this is tribal knowledge, eventually this should appear in the SQA docs:
@@ -273,7 +273,10 @@ def _create_addon(version, variables) -> Addon:
 
         print(f"addon directory created at: {addon_dir}")
 
-        env = Environment(loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"))
+        env = Environment(
+            loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"),
+            autoescape=select_autoescape()
+            )
         template_files = env.list_templates(extensions="j2")
 
         for template_name in template_files:
