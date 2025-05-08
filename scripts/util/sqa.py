@@ -100,8 +100,8 @@ class TestPlanInstance(BaseModel):
         return TestPlanInstanceStatus.from_name(v)
 
 
-def _create_product_version(channel: str, version: str) -> ProductVersion:
-    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --version {version}"
+def _create_product_version(channel: str, base: str, arch: str, version: str) -> ProductVersion:
+    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --version {version} --series {base}"
 
     print(f"Creating product version for channel {channel} vision {version}...")
     print(product_version_cmd)
@@ -252,7 +252,7 @@ def start_release_test(channel, base, arch, revisions, version):
 
         product_version = product_versions[0]
     else:
-        product_version = _create_product_version(channel, version)
+        product_version = _create_product_version(channel, base, arch, version)
 
     variables = {
         "base": base,
