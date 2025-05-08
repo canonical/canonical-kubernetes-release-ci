@@ -33,7 +33,7 @@ class Bundle:
         # All the matrices in a bundle must have the same span of arch and bases 
         # and have a revision values for each (arch, base) so that they can be 
         # tested alongside each other.
-        item: RevisionMatrix = random.choice(list(self.data.values()))
+        item: RevisionMatrix = random.choice(list(self.data.values())) #nosec
         
         bases = item.get_bases()
         archs = item.get_archs()
@@ -51,14 +51,14 @@ class Bundle:
 
     def get_bases(self):
         try:
-            item: RevisionMatrix = random.choice(list(self.data.values()))
+            item: RevisionMatrix = random.choice(list(self.data.values())) #nosec
             return item.get_bases()
         except StopIteration:
             return set()
         
     def get_archs(self):
         try:
-            item: RevisionMatrix = random.choice(list(self.data.values()))
+            item: RevisionMatrix = random.choice(list(self.data.values())) #nosec
             return item.get_archs()
         except StopIteration:
             return set()
