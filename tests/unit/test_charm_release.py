@@ -56,7 +56,7 @@ def test_no_release_run(mock_sqa, mock_charmhub):
     mock_sqa.start_release_test.assert_called_once_with("1.32/candidate", 
                                                         "22.04", "amd64", 
                                                         {"k8s_revision": "741"}, 
-                                                        "k8s-operator-k8s-741")
+                                                        "k8s-operator-k8s-741", 1)
     mock_charmhub.promote_charm.assert_not_called()
 
 

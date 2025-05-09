@@ -34,7 +34,8 @@ def test_create_test_plan_instance(mock_weebl_run):
     mock_weebl_run.return_value = mock_test_plan_instances
     test_plan_instance = _create_test_plan_instance(
         "7c409d40-b2dd-44e2-b438-ef7c39b35cba",
-        "b6d399db-f188-4de0-8870-1756f2de2e2c"
+        "b6d399db-f188-4de0-8870-1756f2de2e2c",
+        1
     )
 
     assert test_plan_instance.uuid == UUID("ccdcb402-78cf-4141-bc64-73f77d29d670")

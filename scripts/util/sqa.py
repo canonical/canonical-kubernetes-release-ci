@@ -120,8 +120,8 @@ def _create_product_version(channel: str, base: str, arch: str, version: str) ->
     return product_versions[0]
 
 
-def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str) -> TestPlanInstance:
-    test_plan_instance_cmd = f"testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --addon_id {addon_uuid} --status 'In Progress' --base_priority 3 --product_under_test {product_version_uuid}"
+def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str, priority: int) -> TestPlanInstance:
+    test_plan_instance_cmd = f"testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --addon_id {addon_uuid} --status 'In Progress' --base_priority {priority} --product_under_test {product_version_uuid}"
 
     print(f"Creating test plan instance for product version {product_version_uuid}...")
     print(test_plan_instance_cmd)
@@ -234,7 +234,7 @@ def _product_versions(channel, version) -> list[ProductVersion]:
     return product_versions
 
 
-def start_release_test(channel, base, arch, revisions, version):
+def start_release_test(channel, base, arch, revisions, version, priority):
     product_versions = _product_versions(channel, version)
     if product_versions:
         if len(product_versions) > 1:
@@ -257,7 +257,7 @@ def start_release_test(channel, base, arch, revisions, version):
 
     addon = _create_addon(version, variables)
 
-    test_plan_instance = _create_test_plan_instance(str(product_version.uuid), str(addon.uuid))
+    test_plan_instance = _create_test_plan_instance(str(product_version.uuid), str(addon.uuid), priority)
     print(f"Started release test for {channel} with UUID: {test_plan_instance.uuid}")
 
 

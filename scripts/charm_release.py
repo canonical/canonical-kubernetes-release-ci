@@ -95,6 +95,7 @@ def ensure_track_state(
     channel, bundle: charmhub.Bundle, dry_run: bool
 ) -> TrackState:
     track_state = TrackState()
+    priority = 1
     for arch in bundle.get_archs():
         # Note(Reza): Currently SQA only supports the test for the amd64 architecture
         # we should differentiate the TPIs for different architectures once arm64 is
@@ -119,7 +120,10 @@ def ensure_track_state(
                 print(f"No TPI found. Creating a new TPI for the following revisions: {revisions}")
                 
                 if not dry_run:
-                    sqa.start_release_test(channel, base, arch, revisions, version)
+                    sqa.start_release_test(channel, base, arch, revisions, version, priority)
+                    # We are creating TPIs with different priorities to avoid overloading the 
+                    # SQA platform
+                    priority+=1
                 track_state.set_state(version, sqa.TestPlanInstanceStatus.IN_PROGRESS)
                 continue
 
