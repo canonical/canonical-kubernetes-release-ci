@@ -47,7 +47,7 @@ def get_revision_matrix_side_effect(charm_name, channel):
 def test_no_release_run(mock_sqa, mock_charmhub):
     """If there is no release run exists for the given track, a new one should be started."""
     mock_charmhub.get_revision_matrix.side_effect = get_revision_matrix_side_effect
-    mock_charmhub.Bundle.return_value = charmhub.Bundle()
+    mock_charmhub.Bundle.return_value = charmhub.Bundle("k8s-operator")
     mock_sqa.TestPlanInstanceStatus = sqa.TestPlanInstanceStatus
     mock_sqa.current_test_plan_instance_status.return_value = None
 
