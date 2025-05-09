@@ -39,11 +39,11 @@ jobs:
       - name: Process charms
         id: process-charms
         run: |
-          tox -e charm_release
+          tox -evv charm_release
       - name: Check if any results
         id: check_results
         run: |
-          if [ -s results.txt]
+          if [ -s results.txt ]
           then
             echo "has_results=true" >> "$GITHUB_OUTPUT"
           fi
