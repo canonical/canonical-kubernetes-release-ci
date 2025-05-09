@@ -312,9 +312,7 @@ def _weebl_run(*args, **kwds) -> str:
     try:
         response = subprocess.run(["/snap/bin/weebl-tools.sqalab", *args], **kwds)
     except subprocess.CalledProcessError as e:
-        print(f"{args[0]} failed:")
-        print(e.stderr)
-        raise SQAFailure
+        raise SQAFailure(f"{args[0]} failed: {e.stderr}")
     return response.stdout
 
 def parse_response_lists(model, response_str: str) -> list:

@@ -64,8 +64,6 @@ class TrackState:
         self._state_map: Dict[str, sqa.TestPlanInstanceStatus] = {}
 
     def set_state(self, version, state: sqa.TestPlanInstanceStatus):
-        if not isinstance(state, sqa.TestPlanInstanceStatus):
-            raise ValueError("State must be an instance of TestPlanInstanceStatus")
         self._state_map[version] = state
 
     def __str__(self):
@@ -135,7 +133,7 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool) -> Proces
 
     candidate_channel = f"{track}/candidate"
     stable_channel = f"{track}/stable"
-    k8s_operator_bundle = charmhub.Bundle()
+    k8s_operator_bundle = charmhub.Bundle("k8s-operator")
     at_least_one_charm_in_candidate = False
     try:
         for charm in bundle_charms:
@@ -152,7 +150,7 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool) -> Proces
 
             if not candidate_revision_matrix:
                 print(f"The channel {candidate_channel} of {charm} has no revisions.")
-                k8s_operator_bundle.set(charm, None)
+                k8s_operator_bundle.set(charm, stable_revision_matrix)
                 continue
 
             if candidate_revision_matrix == stable_revision_matrix:
@@ -198,8 +196,11 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool) -> Proces
         else:
             print(f"Unknown state for {track}. Skipping...")
             return ProcessState.PROCESS_CI_FAILED
-    except Exception as e:
-        print(f"process track {track} failed: {e}")
+    except sqa.SQAFailure as e:
+        print(f"process track {track} failed because of the SQA: {e}")
+        return ProcessState.PROCESS_CI_FAILED
+    except charmhub.CharmcraftFailure as e:
+        print(f"process track {track} failed because of the Charmcraft: {e}")
         return ProcessState.PROCESS_CI_FAILED
 
 

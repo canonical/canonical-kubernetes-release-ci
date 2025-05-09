@@ -13,6 +13,9 @@ LOG = logging.getLogger(__name__)
 # Timeout for Store API request in seconds
 TIMEOUT = 10
 
+class CharmcraftFailure(Exception):
+    pass
+
 class Bundle:
     """
     Bundle defines a set of charms that need to be tested together. 
@@ -20,8 +23,9 @@ class Bundle:
     k8s and k8s-worker charms
     """
     
-    def __init__(self):
+    def __init__(self, name):
         self.data: defaultdict[str, RevisionMatrix] = defaultdict(None)
+        self.name = name
 
     def set(self, charm, revision_matrix):
         self.data[charm] = revision_matrix
@@ -77,7 +81,7 @@ class Bundle:
         if not charms:
             return None
 
-        version = "k8s-operator"
+        version = self.name
         for charm in charms:
             revision_matrix = self.data[charm]
             if not revision_matrix:
@@ -101,46 +105,35 @@ class RevisionMatrix:
     """
 
     def __init__(self):
-        self.data: defaultdict[str, dict[str, str]] = defaultdict(dict)
+        self.data: defaultdict[tuple[str, str], str] = defaultdict(str)
 
     def set(self, arch, base, revision):
-        self.data[arch][base] = revision
+        self.data[(arch, base)] = revision
 
     def get_archs(self):
-        return set(self.data.keys())
+        return set(k[0] for k in self.data.keys())
 
     def get_bases(self):
-        bases: set[str] = set()
-        for base in self.data.values():
-            bases.update(base.keys())
-        return bases
+        return set(k[1] for k in self.data.keys())
+
 
     def get(self, arch, base):
-        return self.data.get(arch, {}).get(base, None)
-
-    def remove_arch(self, arch):
-        if arch in self.data:
-            del self.data[arch]
-
-    def remove_base(self, base):
-        for arch in list(self.data):
-            if base in self.data[arch]:
-                del self.data[arch][base]
+        return self.data.get((arch, base))
 
     def __eq__(self, other):
-        if not isinstance(other, RevisionMatrix):
-            return NotImplemented
         return dict(self.data) == dict(other.data)
 
     def __bool__(self):
+        if not self.data.keys():
+            return False
         return all(value is not None for value in self.data.values())
 
     def __str__(self):
-        archs = sorted(self.data)
-        bases = sorted({c for r in self.data.values() for c in r})
+        archs = sorted(self.get_archs())
+        bases = sorted(self.get_bases())
         result = ["\t" + "\t".join(bases)]
         for a in archs:
-            line = [a] + [str(self.data[a].get(c, "")) for c in bases]
+            line = [a] + [str(self.data.get((a, b), "")) for b in bases]
             result.append("\t".join(line))
         return "\n".join(result)
 
@@ -192,7 +185,10 @@ def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:
 
 def promote_charm(charm_name, from_channel, to_channel):
     """Promote a charm from one channel to another."""
-    subprocess.run(
-        ["/snap/bin/charmcraft", "promote", charm_name, from_channel, to_channel],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["/snap/bin/charmcraft", "promote", charm_name, from_channel, to_channel],
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise CharmcraftFailure(f"promote charm failed: {e.stderr}")
