@@ -3,7 +3,7 @@ import re
 from typing import Dict, List
 
 import requests
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 
 K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags"
 
@@ -80,3 +80,33 @@ def get_latest_releases_by_minor() -> Dict[str, str]:
             latest_by_minor[key] = tag
 
     return latest_by_minor
+
+
+def get_all_releases_after(release) -> set[str]:
+    """
+    Get all releases after the input release.
+    If the input release is invalid, the output will be empty.
+    """
+    releases: set[str] = set()
+    try:
+        least_version = Version(release)
+    except InvalidVersion:
+        raise ValueError(f"{release} is not a valid version")
+
+    for tag in get_k8s_tags():
+        if not is_stable_release(tag):
+            continue
+        try:
+            version = Version(tag)
+        except InvalidVersion:
+            continue
+
+        if version.major < least_version.major:
+            continue
+        elif version.major > least_version.major:
+            releases.add(f"{version.major}.{version.minor}")
+            continue
+        elif version.minor >= least_version.minor:
+            releases.add(f"{version.major}.{version.minor}")
+
+    return set(releases)
