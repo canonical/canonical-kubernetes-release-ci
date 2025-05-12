@@ -51,7 +51,8 @@ def test_no_release_run(mock_sqa, mock_charmhub):
     mock_sqa.TestPlanInstanceStatus = sqa.TestPlanInstanceStatus
     mock_sqa.current_test_plan_instance_status.return_value = None
 
-    charm_release.process_track(["k8s"], "1.32", False)
+    priority_generator = sqa.PriorityGenerator()
+    charm_release.process_track(["k8s"], "1.32", False, priority_generator)
 
     mock_sqa.start_release_test.assert_called_once_with("1.32/candidate", 
                                                         "22.04", "amd64", 
@@ -65,6 +66,7 @@ def test_no_new_release_no_action(mock_sqa, mock_charmhub):
     mock_charmhub.get_revision_matrix.side_effect = get_same_revision_matrix_side_effect
     mock_sqa.current_test_plan_instance_status.return_value = None
 
-    charm_release.process_track(["k8s"], "1.32", False)
+    priority_generator = sqa.PriorityGenerator()
+    charm_release.process_track(["k8s"], "1.32", False, priority_generator)
     mock_sqa.start_release_test.assert_not_called()
     mock_charmhub.promote_charm.assert_not_called()

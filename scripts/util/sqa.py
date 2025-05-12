@@ -4,6 +4,7 @@ import os
 import shlex
 import subprocess
 import tempfile
+import threading
 from enum import StrEnum
 from typing import Optional
 from uuid import UUID
@@ -21,6 +22,20 @@ K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
 class SQAFailure(Exception):
     pass
+
+class PriorityGenerator:
+    """
+    PriorityGenerator is an atomic counter to create atomic priorities for new TPIs we create.
+    """
+    def __init__(self, initial=0):
+        self.value = initial
+        self._lock = threading.Lock()
+
+    @property
+    def next_priority(self):
+        with self._lock:
+            self.value += 1
+            return self.value
 
 class Addon(BaseModel):
     id: str

@@ -92,10 +92,9 @@ class ProcessState(StrEnum):
     PROCESS_UNCHANGED = auto()
 
 def ensure_track_state(
-    channel, bundle: charmhub.Bundle, dry_run: bool
+    channel, bundle: charmhub.Bundle, dry_run: bool, priority_generator: sqa.PriorityGenerator
 ) -> TrackState:
     track_state = TrackState()
-    priority = 1
     for arch in bundle.get_archs():
         # Note(Reza): Currently SQA only supports the test for the amd64 architecture
         # we should differentiate the TPIs for different architectures once arm64 is
@@ -110,20 +109,21 @@ def ensure_track_state(
             version = bundle.get_version(arch, base)
             if not version:
                 continue
-            
-            print(f"Checking if there is any TPIs for ({channel}, {arch}, {base})")
+            priority = priority_generator.next_priority
+            print(f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})")
             current_test_plan_instance_status = sqa.current_test_plan_instance_status(
                 channel, version
             )
             if not current_test_plan_instance_status:
                 revisions = bundle.get_revisions(arch, base)
-                print(f"No TPI found. Creating a new TPI for the following revisions: {revisions}")
+                # We are creating TPIs with different priorities to avoid overloading the 
+                # SQA platform
+                
+                print(f"No TPI found. Creating a new TPI for {revisions} with priority {priority}")
                 
                 if not dry_run:
                     sqa.start_release_test(channel, base, arch, revisions, version, priority)
-                    # We are creating TPIs with different priorities to avoid overloading the 
-                    # SQA platform
-                    priority+=1
+
                 track_state.set_state(version, sqa.TestPlanInstanceStatus.IN_PROGRESS)
                 continue
 
@@ -132,7 +132,7 @@ def ensure_track_state(
     return track_state
 
 
-def process_track(bundle_charms: list[str], track: str, dry_run: bool) -> ProcessState:
+def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_generator: sqa.PriorityGenerator) -> ProcessState:
     """Process the given track based on its current state."""
 
     candidate_channel = f"{track}/candidate"
@@ -181,7 +181,7 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool) -> Proces
     
     try:
         state = ensure_track_state(
-            candidate_channel, k8s_operator_bundle, dry_run
+            candidate_channel, k8s_operator_bundle, dry_run, priority_generator
         )
         print(f"Track {track} is in state: {state}")
 
@@ -239,8 +239,9 @@ def main():
     print(f"Starting the charms {args.charms} release process for: {tracks}")
 
     results = {}
+    priority_generator = sqa.PriorityGenerator()
     for track in tracks:
-        process_state = process_track(args.charms, track, args.dry_run)
+        process_state = process_track(args.charms, track, args.dry_run, priority_generator)
         if process_state in [
             ProcessState.PROCESS_IN_PROGRESS,
             ProcessState.PROCESS_UNCHANGED,
