@@ -5,7 +5,6 @@ import shlex
 import subprocess
 import tempfile
 from enum import StrEnum
-from token import OP
 from typing import Optional
 from uuid import UUID
 
