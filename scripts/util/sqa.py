@@ -5,6 +5,7 @@ import shlex
 import subprocess
 import tempfile
 from enum import StrEnum
+from token import OP
 from typing import Optional
 from uuid import UUID
 
@@ -260,8 +261,40 @@ def start_release_test(channel, base, arch, revisions, version, priority):
     test_plan_instance = _create_test_plan_instance(str(product_version.uuid), str(addon.uuid), priority)
     print(f"Started release test for {channel} with UUID: {test_plan_instance.uuid}")
 
+def _get_addon(name: str) -> Optional[Addon]:
+    show_addon_cmd = f"addon show {name} --format json"
+
+    print(f"Getting the {name} addon")
+    print(show_addon_cmd)
+
+    # TODO: remove this when SQA bug has been fixed
+    # The SQA returns StopIteration in case of no addons
+    try:
+        show_addon_response = _weebl_run(*shlex.split(show_addon_cmd))
+    except SQAFailure:
+        return None
+
+    print(show_addon_response)
+    addons = parse_response_lists(Addon, show_addon_response)
+
+    # there can be no addons for the provided name
+    if not addons:
+        return None
+    
+    if len(addons) > 1:
+        raise SQAFailure("Too many addons from cshow command")
+
+    return addons[0]
 
 def _create_addon(version, variables) -> Addon:
+
+    # return the addon if it's already defined before
+    addon = _get_addon(version)
+    if addon:
+        print(f"Using the previously defined addon for {version}")
+        return addon
+
+    print(f"No previous addon found. Creating a new one for {version}...")
     home_dir = os.path.expanduser("~")
     with tempfile.TemporaryDirectory(dir=home_dir, delete=False) as temp_dir:
         # the name of the addon dir must be 'addon'
