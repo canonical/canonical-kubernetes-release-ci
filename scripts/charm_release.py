@@ -52,11 +52,14 @@ TODOs:
 """
 
 import argparse
+import logging
 from enum import StrEnum, auto
 from typing import Dict
 
 from requests.exceptions import HTTPError
 from util import charmhub, k8s, sqa
+
+log = logging.getLogger(__name__)
 
 
 class TrackState:
@@ -70,11 +73,17 @@ class TrackState:
         return str([(key, str(value)) for key, value in self._state_map.items()])
 
     @property
+    def empty(self) -> bool:
+        return not self._state_map
+
+    @property
     def failed(self) -> bool:
         return any(s.failed for s in self._state_map.values())
 
     @property
     def succeeded(self) -> bool:
+        if self.empty:
+            return False
         return all(s.succeeded for s in self._state_map.values())
 
     @property
@@ -139,37 +148,39 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
     stable_channel = f"{track}/stable"
     k8s_operator_bundle = charmhub.Bundle("k8s-operator")
     at_least_one_charm_in_candidate = False
-    try:
-        for charm in bundle_charms:
-            print(f"Getting revisions for {charm} charm on track {track}")
+    for charm in bundle_charms:
+        print(f"Getting revisions for {charm} charm on track {track}")
+        try:
             candidate_revision_matrix = charmhub.get_revision_matrix(
                 charm, candidate_channel
             )
-            print(f"Channel {candidate_channel} revisions:")
-            print(candidate_revision_matrix)
+        except HTTPError:
+            log.exception(f"failed to get candidate revision matrix for charm {charm} channel {candidate_channel}")
+            return ProcessState.PROCESS_CI_FAILED
+        print(f"Channel {candidate_channel} revisions:")
+        print(candidate_revision_matrix)
 
+        try:
             stable_revision_matrix = charmhub.get_revision_matrix(charm, stable_channel)
-            print(f"Channel {stable_channel} reversions:")
-            print(stable_revision_matrix)
+        except HTTPError:
+            log.exception(f"failed to get stable revision matrix for charm {charm} channel {stable_channel}")
+            return ProcessState.PROCESS_CI_FAILED
+        print(f"Channel {stable_channel} reversions:")
+        print(stable_revision_matrix)
 
-            if not candidate_revision_matrix:
-                print(f"The channel {candidate_channel} of {charm} has no revisions.")
-                k8s_operator_bundle.set(charm, stable_revision_matrix)
-                continue
+        if not candidate_revision_matrix:
+            print(f"The channel {candidate_channel} of {charm} has no revisions.")
+            k8s_operator_bundle.set(charm, stable_revision_matrix)
+            continue
 
-            if candidate_revision_matrix == stable_revision_matrix:
-                print(
-                    f"The channel {candidate_channel} of {charm} is already published in {stable_channel}."
-                )
-                k8s_operator_bundle.set(charm, stable_revision_matrix)
-                continue
-            at_least_one_charm_in_candidate = True
-            k8s_operator_bundle.set(charm, candidate_revision_matrix)
-
-            
-    except HTTPError as e:
-        print(f"failed to get charm revisions: {e}")
-        return ProcessState.PROCESS_CI_FAILED
+        if candidate_revision_matrix == stable_revision_matrix:
+            print(
+                f"The channel {candidate_channel} of {charm} is already published in {stable_channel}."
+            )
+            k8s_operator_bundle.set(charm, stable_revision_matrix)
+            continue
+        at_least_one_charm_in_candidate = True
+        k8s_operator_bundle.set(charm, candidate_revision_matrix)
 
     if not k8s_operator_bundle.is_testable():
         print(f"k8s operator has a missing charm in track {track}. Skipping...")
@@ -185,7 +196,10 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
         )
         print(f"Track {track} is in state: {state}")
 
-        if state.succeeded:
+        if state.empty:
+            print("Track state is empty and indicative of a CI failure. Skipping...")
+            return ProcessState.PROCESS_CI_FAILED
+        elif state.succeeded:
             print(f"Release run for {track} succeeded. Promoting charm revisions...")
             if not dry_run:
                 for charm in bundle_charms:
@@ -200,11 +214,11 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
         else:
             print(f"Unknown state for {track}. Skipping...")
             return ProcessState.PROCESS_CI_FAILED
-    except sqa.SQAFailure as e:
-        print(f"process track {track} failed because of the SQA: {e}")
+    except sqa.SQAFailure:
+        log.exception(f"process track {track} failed because of the SQA")
         return ProcessState.PROCESS_CI_FAILED
-    except charmhub.CharmcraftFailure as e:
-        print(f"process track {track} failed because of the Charmcraft: {e}")
+    except charmhub.CharmcraftFailure:
+        log.exception(f"process track {track} failed because of the Charmcraft")
         return ProcessState.PROCESS_CI_FAILED
 
 
