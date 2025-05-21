@@ -39,7 +39,7 @@ jobs:
       - name: Process charms
         id: process-charms
         run: |
-          tox -evv charm_release
+          tox -evv charm_release -- --dry-run
       - name: Check if any results
         id: check_results
         run: |
