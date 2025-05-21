@@ -1,6 +1,6 @@
 production:
-    username: rapour
-    uuid: rapour
+    username: cdkbot
+    uuid: cdkbot
     apikey: $SQA_API_KEY
     token: $SQA_API_KEY
     env_name: production
