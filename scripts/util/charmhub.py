@@ -8,7 +8,7 @@ from collections import defaultdict
 
 import requests
 
-LOG = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 # Timeout for Store API request in seconds
 TIMEOUT = 10
@@ -161,14 +161,14 @@ def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:
     headers = {
         "Content-Type": "application/json",
     }
-    print(f"Querying Charmhub to get revisions of {charm_name} in {channel}...")
+    log.info(f"Querying Charmhub to get revisions of {charm_name} in {channel}...")
     
     url = f"https://api.charmhub.io/v2/charms/info/{charm_name}?fields=channel-map"
     r = requests.get(url, headers=headers, timeout=TIMEOUT)
     r.raise_for_status()
 
     data = json.loads(r.text)
-    print("Search for charm revisions in channel list...")
+    log.info("Search for charm revisions in channel list...")
 
     revision_matrix = RevisionMatrix()
     for channel_map in data.get("channel-map", []):

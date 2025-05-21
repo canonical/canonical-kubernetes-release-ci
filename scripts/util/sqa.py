@@ -5,12 +5,15 @@ import shlex
 import subprocess
 import tempfile
 import threading
+import logging
 from enum import StrEnum
 from typing import Optional
 from uuid import UUID
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
+
+log = logging.getLogger(__name__)
 
 # Currently this is tribal knowledge, eventually this should appear in the SQA docs:
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html
@@ -117,12 +120,11 @@ class TestPlanInstance(BaseModel):
 def _create_product_version(channel: str, base: str, arch: str, version: str) -> ProductVersion:
     product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --version {version} --series {base}"
 
-    print(f"Creating product version for channel {channel} vision {version}...")
-    print(product_version_cmd)
+    log.info("Creating product version for channel %s vision %s...\n %s", channel, version, product_version_cmd)
 
     product_version_response = _weebl_run(*shlex.split(product_version_cmd))
 
-    print(product_version_response)
+    log.info(product_version_response)
     product_versions = parse_response_lists(ProductVersion, product_version_response)
 
 
@@ -138,12 +140,11 @@ def _create_product_version(channel: str, base: str, arch: str, version: str) ->
 def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str, priority: int) -> TestPlanInstance:
     test_plan_instance_cmd = f"testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --addon_id {addon_uuid} --status 'In Progress' --base_priority {priority} --product_under_test {product_version_uuid}"
 
-    print(f"Creating test plan instance for product version {product_version_uuid}...")
-    print(test_plan_instance_cmd)
+    log.info("Creating test plan instance for product version %s...\n %s", product_version_uuid, test_plan_instance_cmd)
 
     test_plan_instance_response = _weebl_run(*shlex.split(test_plan_instance_cmd))
 
-    print(json_str := test_plan_instance_response)
+    log.info(json_str := test_plan_instance_response)
     end_index = json_str.rfind("]")
 
     if end_index != -1:
@@ -214,14 +215,14 @@ def _test_plan_instances(
 ) -> list[UUID]:
     test_plan_instances_cmd = f"testplaninstance list --format json --productversion-uuid {productversion_uuid} --status '{status.value.lower()}'"
 
-    print(
-        f"Getting test plan instances for product version {productversion_uuid} with status {status}..."
+    log.info(
+        "Getting test plan instances for product version %s with status %s...\n %s", 
+        productversion_uuid, status, test_plan_instances_cmd
     )
-    print(test_plan_instances_cmd)
 
     test_plan_instances_response = _weebl_run(*shlex.split(test_plan_instances_cmd))
 
-    print(json_str := test_plan_instances_response)
+    log.info(json_str := test_plan_instances_response)
     start_index = json_str.rfind("{")
 
     if start_index != -1:
@@ -238,12 +239,11 @@ def _test_plan_instances(
 def _product_versions(channel, version) -> list[ProductVersion]:
     product_versions_cmd = f"productversion list --channel {channel} --version {version} --format json"
 
-    print(f"Getting product versions for channel {channel} version {version}")
-    print(product_versions_cmd)
+    log.info("Getting product versions for channel %s version %s\n %s", channel, version, product_versions_cmd)
 
     product_versions_response = _weebl_run(*shlex.split(product_versions_cmd))
    
-    print(product_versions_response)
+    log.info(product_versions_response)
     product_versions = parse_response_lists(ProductVersion, product_versions_response)
 
     return product_versions
@@ -255,7 +255,7 @@ def start_release_test(channel, base, arch, revisions, version, priority):
         if len(product_versions) > 1:
             raise SQAFailure(f"the ({channel, base, arch}) is supposed to have only one product version for version {version}")
 
-        print(
+        log.info(
             f"using already defined product version {product_versions[0].uuid} to create TPI"
         )
 
@@ -273,13 +273,12 @@ def start_release_test(channel, base, arch, revisions, version, priority):
     addon = _create_addon(version, variables)
 
     test_plan_instance = _create_test_plan_instance(str(product_version.uuid), str(addon.uuid), priority)
-    print(f"Started release test for {channel} with UUID: {test_plan_instance.uuid}")
+    log.info(f"Started release test for {channel} with UUID: {test_plan_instance.uuid}")
 
 def _get_addon(name: str) -> Optional[Addon]:
     show_addon_cmd = f"addon show {name} --format json"
 
-    print(f"Getting the {name} addon")
-    print(show_addon_cmd)
+    log.info("Getting the %s addon\n %s", name, show_addon_cmd)
 
     # TODO: remove this when SQA bug has been fixed
     # The SQA returns StopIteration in case of no addons
@@ -288,7 +287,7 @@ def _get_addon(name: str) -> Optional[Addon]:
     except SQAFailure:
         return None
 
-    print(show_addon_response)
+    log.info(show_addon_response)
     addons = parse_response_lists(Addon, show_addon_response)
 
     # there can be no addons for the provided name
@@ -305,10 +304,10 @@ def _create_addon(version, variables) -> Addon:
     # return the addon if it's already defined before
     addon = _get_addon(version)
     if addon:
-        print(f"Using the previously defined addon for {version}")
+        log.info(f"Using the previously defined addon for {version}")
         return addon
 
-    print(f"No previous addon found. Creating a new one for {version}...")
+    log.info(f"No previous addon found. Creating a new one for {version}...")
     home_dir = os.path.expanduser("~")
     with tempfile.TemporaryDirectory(dir=home_dir, delete=False) as temp_dir:
         # the name of the addon dir must be 'addon'
@@ -318,7 +317,7 @@ def _create_addon(version, variables) -> Addon:
         config_dir = os.path.join(addon_dir, "config")
         os.makedirs(config_dir)  
 
-        print(f"addon directory created at: {addon_dir}")
+        log.info(f"addon directory created at: {addon_dir}")
 
         env = Environment(
             loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"),
@@ -338,12 +337,11 @@ def _create_addon(version, variables) -> Addon:
         
         create_addon_cmd = f"addon add --addon {addon_dir} --name {version} --format json"
 
-        print(f"Creating an addon for version {version}")
-        print(create_addon_cmd)
+        log.info("Creating an addon for version %s\n %s", version, create_addon_cmd)
 
         create_addon_response = _weebl_run(*shlex.split(create_addon_cmd))
 
-    print(create_addon_response)
+    log.info(create_addon_response)
     addons = parse_response_lists(Addon, create_addon_response)
 
     if not addons:

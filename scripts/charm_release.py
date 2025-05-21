@@ -59,6 +59,7 @@ from typing import Dict
 from requests.exceptions import HTTPError
 from util import charmhub, k8s, sqa
 
+logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
@@ -119,7 +120,7 @@ def ensure_track_state(
             if not version:
                 continue
             priority = priority_generator.next_priority
-            print(f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})")
+            log.info(f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})")
             current_test_plan_instance_status = sqa.current_test_plan_instance_status(
                 channel, version
             )
@@ -128,7 +129,7 @@ def ensure_track_state(
                 # We are creating TPIs with different priorities to avoid overloading the 
                 # SQA platform
                 
-                print(f"No TPI found. Creating a new TPI for {revisions} with priority {priority}")
+                log.info(f"No TPI found. Creating a new TPI for {revisions} with priority {priority}")
                 
                 if not dry_run:
                     sqa.start_release_test(channel, base, arch, revisions, version, priority)
@@ -149,7 +150,7 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
     k8s_operator_bundle = charmhub.Bundle("k8s-operator")
     at_least_one_charm_in_candidate = False
     for charm in bundle_charms:
-        print(f"Getting revisions for {charm} charm on track {track}")
+        log.info(f"Getting revisions for {charm} charm on track {track}")
         try:
             candidate_revision_matrix = charmhub.get_revision_matrix(
                 charm, candidate_channel
@@ -157,24 +158,22 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
         except HTTPError:
             log.exception(f"failed to get candidate revision matrix for charm {charm} channel {candidate_channel}")
             return ProcessState.PROCESS_CI_FAILED
-        print(f"Channel {candidate_channel} revisions:")
-        print(candidate_revision_matrix)
+        log.info("Channel %s revisions:\n %s", candidate_channel, candidate_revision_matrix)
 
         try:
             stable_revision_matrix = charmhub.get_revision_matrix(charm, stable_channel)
         except HTTPError:
             log.exception(f"failed to get stable revision matrix for charm {charm} channel {stable_channel}")
             return ProcessState.PROCESS_CI_FAILED
-        print(f"Channel {stable_channel} reversions:")
-        print(stable_revision_matrix)
+        log.info("Channel %s revisions:\n %s", stable_channel, stable_revision_matrix)
 
         if not candidate_revision_matrix:
-            print(f"The channel {candidate_channel} of {charm} has no revisions.")
+            log.info(f"The channel {candidate_channel} of {charm} has no revisions.")
             k8s_operator_bundle.set(charm, stable_revision_matrix)
             continue
 
         if candidate_revision_matrix == stable_revision_matrix:
-            print(
+            log.info(
                 f"The channel {candidate_channel} of {charm} is already published in {stable_channel}."
             )
             k8s_operator_bundle.set(charm, stable_revision_matrix)
@@ -183,36 +182,36 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
         k8s_operator_bundle.set(charm, candidate_revision_matrix)
 
     if not k8s_operator_bundle.is_testable():
-        print(f"k8s operator has a missing charm in track {track}. Skipping...")
+        log.info(f"k8s operator has a missing charm in track {track}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
     
     if not at_least_one_charm_in_candidate:
-        print(f"no charm has candidate revisions on track {track}. Skipping...")
+        log.info(f"no charm has candidate revisions on track {track}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
     
     try:
         state = ensure_track_state(
             candidate_channel, k8s_operator_bundle, dry_run, priority_generator
         )
-        print(f"Track {track} is in state: {state}")
+        log.info(f"Track {track} is in state: {state}")
 
         if state.empty:
-            print("Track state is empty and indicative of a CI failure. Skipping...")
+            log.info("Track state is empty and indicative of a CI failure. Skipping...")
             return ProcessState.PROCESS_CI_FAILED
         elif state.succeeded:
-            print(f"Release run for {track} succeeded. Promoting charm revisions...")
+            log.info(f"Release run for {track} succeeded. Promoting charm revisions...")
             if not dry_run:
                 for charm in bundle_charms:
                     charmhub.promote_charm(charm, candidate_channel, stable_channel)
             return ProcessState.PROCESS_SUCCESS
         elif state.in_progress:
-            print(f"Release run for {track} is still in progress. No action needed.")
+            log.info(f"Release run for {track} is still in progress. No action needed.")
             return ProcessState.PROCESS_IN_PROGRESS
         elif state.failed:
-            print(f"Release run for {track} failed. Manual intervention required.")
+            log.info(f"Release run for {track} failed. Manual intervention required.")
             return ProcessState.PROCESS_FAILED
         else:
-            print(f"Unknown state for {track}. Skipping...")
+            log.info(f"Unknown state for {track}. Skipping...")
             return ProcessState.PROCESS_CI_FAILED
     except sqa.SQAFailure:
         log.exception(f"process track {track} failed because of the SQA")
@@ -243,14 +242,14 @@ def main():
     if args.supported_tracks:
         tracks = args.supported_tracks
     else:
-        print(f"Getting all Kubernetes releases after {args.after} inclusive.")
+        log.info(f"Getting all Kubernetes releases after {args.after} inclusive.")
         tracks = k8s.get_all_releases_after(args.after)
 
     if not tracks:
-        print("No tracks found for charm release process. Skipping...")
+        log.info("No tracks found for charm release process. Skipping...")
         return
 
-    print(f"Starting the charms {args.charms} release process for: {tracks}")
+    log.info(f"Starting the charms {args.charms} release process for: {tracks}")
 
     results = {}
     priority_generator = sqa.PriorityGenerator()
