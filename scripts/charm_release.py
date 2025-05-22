@@ -37,7 +37,7 @@ for each track:
 
     Actions:
         - NO_TEST: start a new TPI
-        - TEST_IN_PROGRESS: just print that a log message
+        - TEST_IN_PROGRESS: just print that as a log message
         - TEST_SUCCESS: promote the charm revisions to the next channel
         - TEST_FAILED: manual intervention with SQA required
 
