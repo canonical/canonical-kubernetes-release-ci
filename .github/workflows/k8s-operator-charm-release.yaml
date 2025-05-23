@@ -43,9 +43,22 @@ jobs:
           cat templates/sqa-environments.yaml | envsubst > $HOME/environments.yaml
           weebl-tools.sqalab environment create --yaml $HOME/environments.yaml
       - name: Process charms
+        env:
+          SUPPORTED_TRACKS: ${{ vars.CHARM_RELEASE_SUPPORTED_TRACKS }}
+          TOX_ARGS: ${{ github.event.inputs.tox_args }}
         id: process-charms
         run: |
-          tox -vv -e charm_release -- --supported-tracks 1.32 ${{ github.event.inputs.tox_args }}
+          ARGS=""
+
+          if [ -n "$SUPPORTED_TRACKS" ]; then
+            ARGS="$ARGS --supported-tracks=$SUPPORTED_TRACKS"
+          fi
+
+          if [ -n "$TOX_ARGS" ]; then
+            ARGS="$ARGS $TOX_ARGS"
+          fi
+
+          tox -vv -e charm_release -- $ARGS
       - name: Check if any results
         id: check_results
         run: |
