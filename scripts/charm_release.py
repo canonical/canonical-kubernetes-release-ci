@@ -6,9 +6,10 @@ and then decides what to do next.The script is designed to be idempotent, meanin
 can be run multiple times without causing any harm.
 
 For each track to be published on stable from candidate, there are more than one revisions 
-that need to be tested, each corresponding to a unique (arch, base) for which a revision has
-been published. We call the set of all such revisions a revision matrix of a track. For example 
-track 1.32 can have the following matrix of revisions on candidate risk level:
+that need to be tested, each corresponding to a unique (arch, base) of each charm for which 
+a revision has been published. We call the set of all such revisions a revision matrix of a 
+track. For example track 1.32 of k8s can have the following matrix of revisions on candidate 
+risk level:
 
         20.04   22.04   24.04
 amd64   741     742     743
@@ -20,26 +21,34 @@ And the following matrix of revisions published on stable:
 amd64   456     457     458
 arm64   459     460     461
 
-The goal is to promote all 6 revisions of the 1.32/candidate to 1.32/stable
+The goal is to promote all 6 revisions of the 1.32/candidate to 1.32/stable. The same goes for 
+k8s-worker charm and any other charm that might be needed to have a complete test. We call the 
+revision matrices of all the necessary charms a bundle, which should not be confused with charm
+bundles. 
 
 for each track:
-    get data for current track state:
+    for each charm: 
+        get data for current track state:
         - extract all the revisions corresponding to each (arch, base) published on channel=<track>/candidate
         - extract all the revisions corresponding to each (arch, base) published on stable_channel=<track>/stable
-        - skip if the revisions on <track>/candidate are already published in <track>/stable
-        - for each (arch, base) revision on channel=<track>/candidate try the following reconciliation pattern:
 
-    revision is in one of the following states:
-        - no TPIs yet -> NO_TEST
-        - at least one TPI succeeded -> TEST_SUCCESS
-        - at least one TPI in progress -> TEST_IN_PROGRESS
-        - there are only failed/(in-)error TPIs -> TEST_FAILED
+    skip if all the charms have their revsions on <track>/candidate already published in <track>/stable
+    
+    for each (arch, base):
+        extract the corresponding revision of each charm on channel=<track>/candidate
+        try the following reconciliation pattern:
 
-    Actions:
-        - NO_TEST: start a new TPI
-        - TEST_IN_PROGRESS: just print that as a log message
-        - TEST_SUCCESS: promote the charm revisions to the next channel
-        - TEST_FAILED: manual intervention with SQA required
+        revision is in one of the following states:
+            - no TPIs yet -> NO_TEST
+            - at least one TPI succeeded -> TEST_SUCCESS
+            - at least one TPI in progress -> TEST_IN_PROGRESS
+            - there are only failed/(in-)error TPIs -> TEST_FAILED
+
+        Actions:
+            - NO_TEST: start a new TPI
+            - TEST_IN_PROGRESS: just print that as a log message
+            - TEST_SUCCESS: promote the charm revisions to the next channel
+            - TEST_FAILED: manual intervention with SQA required
 
     aggregate the results for all the revisions checked for each track:
         - If all revisions have TEST_SUCCESS then report the track state as succeeded 
