@@ -7,6 +7,12 @@ on:
   schedule:
     # Run 20 minutes after midnight
     - cron: "20 0 * * *"
+  workflow_dispatch:
+    inputs:
+      tox_args:
+        description: "Extra arguments to pass to tox"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -37,9 +43,22 @@ jobs:
           cat templates/sqa-environments.yaml | envsubst > $HOME/environments.yaml
           weebl-tools.sqalab environment create --yaml $HOME/environments.yaml
       - name: Process charms
+        env:
+          SUPPORTED_TRACKS: ${{ vars.CHARM_RELEASE_SUPPORTED_TRACKS }}
+          TOX_ARGS: ${{ github.event.inputs.tox_args }}
         id: process-charms
         run: |
-          tox -evv charm_release -- --dry-run
+          ARGS=""
+
+          if [ -n "$SUPPORTED_TRACKS" ]; then
+            ARGS="$ARGS --supported-tracks=$SUPPORTED_TRACKS"
+          fi
+
+          if [ -n "$TOX_ARGS" ]; then
+            ARGS="$ARGS $TOX_ARGS"
+          fi
+
+          tox -vv -e charm_release -- $ARGS
       - name: Check if any results
         id: check_results
         run: |
