@@ -7,6 +7,7 @@ on:
   schedule:
     # Run 20 minutes after midnight
     - cron: "20 0 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -39,7 +40,7 @@ jobs:
       - name: Process charms
         id: process-charms
         run: |
-          tox -evv charm_release
+          tox -vv -e charm_release -- --supported-tracks 1.32
       - name: Check if any results
         id: check_results
         run: |
