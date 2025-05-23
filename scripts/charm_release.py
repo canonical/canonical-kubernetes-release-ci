@@ -27,7 +27,7 @@ for each track:
         - extract all the revisions corresponding to each (arch, base) published on channel=<track>/candidate
         - extract all the revisions corresponding to each (arch, base) published on stable_channel=<track>/stable
         - skip if the revisions on <track>/candidate are already published in <track>/stable
-        - for each (arch, base) revision on channel=<track>/candidate try the following reconcililation pattern:
+        - for each (arch, base) revision on channel=<track>/candidate try the following reconciliation pattern:
 
     revision is in one of the following states:
         - no TPIs yet -> NO_TEST
