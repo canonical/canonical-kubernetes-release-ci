@@ -8,6 +8,11 @@ on:
     # Run 20 minutes after midnight
     - cron: "20 0 * * *"
   workflow_dispatch:
+    inputs:
+      tox_args:
+        description: "Extra arguments to pass to tox"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -40,7 +45,7 @@ jobs:
       - name: Process charms
         id: process-charms
         run: |
-          tox -vv -e charm_release -- --supported-tracks 1.32
+          tox -vv -e charm_release -- --supported-tracks 1.32 ${{ github.event.inputs.tox_args }}
       - name: Check if any results
         id: check_results
         run: |
