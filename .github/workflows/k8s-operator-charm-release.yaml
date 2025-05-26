@@ -20,7 +20,7 @@ permissions:
 jobs:
   release-charms:
     name: Promotes SQA approved charms
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, AMD64, medium, noble]
     outputs:
       has_results: ${{ steps.check_results.outputs.has_results }}
     env:
