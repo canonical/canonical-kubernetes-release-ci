@@ -20,7 +20,7 @@ permissions:
 jobs:
   release-charms:
     name: Promotes SQA approved charms
-    runs-on: [self-hosted, linux, AMD64, medium, noble]
+    runs-on: [self-hosted, self-hosted-linux-amd64-jammy-private-endpoint-medium]
     outputs:
       has_results: ${{ steps.check_results.outputs.has_results }}
     env:
