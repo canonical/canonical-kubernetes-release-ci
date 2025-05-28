@@ -317,7 +317,8 @@ def release_revision(args):
         "Promote r%s to %s%s", revision, channel, args.dry_run and " (dry-run)" or ""
     )
     args.dry_run or subprocess.run(
-        ["/snap/bin/snapcraft", "release", util.SNAP_NAME, revision, channel]
+        ["/snap/bin/snapcraft", "release", util.SNAP_NAME, revision, channel],
+        check=True,
     )
 
 
