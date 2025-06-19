@@ -2,6 +2,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import shlex
 import subprocess
 import tempfile
@@ -22,6 +23,8 @@ K8S_OPERATOR_PRODUCT_UUID = "3a8046a8-ef27-4ec7-a8a3-af6f470b96d7"
 K8S_OPERATOR_TEST_PLAN_ID = "394fb5b6-1698-4226-bd3e-23b471ee1bd4"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
+class ExtractRevisionFailure(Exception):
+    pass
 
 class SQAFailure(Exception):
     pass
@@ -117,8 +120,18 @@ class TestPlanInstance(BaseModel):
         return TestPlanInstanceStatus.from_name(v)
 
 
-def _create_product_version(channel: str, base: str, arch: str, version: str) -> ProductVersion:
-    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --version {version} --series {base}"
+def _create_product_version(channel: str, base: str, version: str) -> ProductVersion:
+
+    # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
+    # the revision of the k8s charm as the identifier. 
+    k8s_revision_match = re.search(r'k8s-(\d+)', version)
+
+    if not k8s_revision_match:
+        raise ExtractRevisionFailure
+
+    k8s_revision = k8s_revision_match.group(1)
+
+    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --revision {k8s_revision} --series {base}"
 
     log.info("Creating product version for channel %s vision %s...\n %s", channel, version, product_version_cmd)
 
@@ -163,17 +176,17 @@ def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str, prior
 
 
 def current_test_plan_instance_status(
-    channel, version
+    channel, base, version
 ) -> Optional[TestPlanInstanceStatus]:
     """
-    First try to get any passed TPIs for the (channel, revision)
+    First try to get any passed TPIs for the (channel, base, version)
     If no passed TPI found, try to get in progress TPIs
     If no in progress TPI found, try to get failed/(in-)error TPIs
     If no failed TPI found, return None
     The aborted TPIs are ignored since they don't semantically hold
     any information about the state of a track
     """
-    product_versions = _product_versions(channel, version)
+    product_versions = _product_versions(channel, base, version)
 
     if not product_versions:
         return None
@@ -236,8 +249,18 @@ def _test_plan_instances(
     return uuids
 
 
-def _product_versions(channel, version) -> list[ProductVersion]:
-    product_versions_cmd = f"productversion list --channel {channel} --version {version} --format json"
+def _product_versions(channel, base, version) -> list[ProductVersion]:
+    
+    # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
+    # the revision of the k8s charm as the identifier. 
+    k8s_revision_match = re.search(r'k8s-(\d+)', version)
+
+    if not k8s_revision_match:
+        raise ExtractRevisionFailure
+
+    k8s_revision = k8s_revision_match.group(1)
+    
+    product_versions_cmd = f"productversion list --channel {channel} --revision {k8s_revision} --series {base} --format json"
 
     log.info("Getting product versions for channel %s version %s\n %s", channel, version, product_versions_cmd)
 
@@ -250,7 +273,7 @@ def _product_versions(channel, version) -> list[ProductVersion]:
 
 
 def start_release_test(channel, base, arch, revisions, version, priority):
-    product_versions = _product_versions(channel, version)
+    product_versions = _product_versions(channel, base, version)
     if product_versions:
         if len(product_versions) > 1:
             raise SQAFailure(f"the ({channel, base, arch}) is supposed to have only one product version for version {version}")
@@ -261,7 +284,7 @@ def start_release_test(channel, base, arch, revisions, version, priority):
 
         product_version = product_versions[0]
     else:
-        product_version = _create_product_version(channel, base, arch, version)
+        product_version = _create_product_version(channel, base, version)
 
     variables = {
         "base": base,

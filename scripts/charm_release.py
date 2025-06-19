@@ -131,7 +131,7 @@ def ensure_track_state(
             priority = priority_generator.next_priority
             log.info(f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})")
             current_test_plan_instance_status = sqa.current_test_plan_instance_status(
-                channel, version
+                channel, base, version
             )
             if not current_test_plan_instance_status:
                 revisions = bundle.get_revisions(arch, base)
@@ -228,6 +228,10 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
     except charmhub.CharmcraftFailure:
         log.exception(f"process track {track} failed because of the Charmcraft")
         return ProcessState.PROCESS_CI_FAILED
+    except sqa.ExtractRevisionFailure:
+        log.exception(f"process track {track} failed because of revision could not be extracted from version")
+        return ProcessState.PROCESS_CI_FAILED
+
 
 
 def main():
