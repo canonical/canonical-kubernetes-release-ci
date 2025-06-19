@@ -20,7 +20,7 @@ def test_product_versions(mock_weebl_run):
         mock_product_versions = file.read()
 
     mock_weebl_run.return_value = mock_product_versions
-    product_versions = _product_versions("1.32/candidate", "179")
+    product_versions = _product_versions("1.32/candidate", "22.04", "k8s-operator-k8s-779-k8s-worker-776")
 
     assert len(product_versions) == 2
 
