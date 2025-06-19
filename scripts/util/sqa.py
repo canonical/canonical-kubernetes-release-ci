@@ -23,11 +23,21 @@ K8S_OPERATOR_PRODUCT_UUID = "432252b9-2041-4a9a-aece-37c2dbd54201"
 K8S_OPERATOR_TEST_PLAN_ID = "394fb5b6-1698-4226-bd3e-23b471ee1bd4"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
-class ExtractRevisionFailure(Exception):
+class InvalidSQAInput(Exception):
     pass
 
 class SQAFailure(Exception):
     pass
+
+
+def get_series(base: str) -> str | None:
+    base_series_map = {
+        "24.04": "noble",
+        "22.04": "jammy",
+        "20.04": "focal",
+    }
+
+    return base_series_map.get(base)
 
 class PriorityGenerator:
     """
@@ -121,17 +131,19 @@ class TestPlanInstance(BaseModel):
 
 
 def _create_product_version(channel: str, base: str, version: str) -> ProductVersion:
+    if not (series := get_series(base)):
+        raise InvalidSQAInput("invalid base provided")
 
     # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
     # the revision of the k8s charm as the identifier. 
     k8s_revision_match = re.search(r'k8s-(\d+)', version)
 
     if not k8s_revision_match:
-        raise ExtractRevisionFailure
+        raise InvalidSQAInput("could not extract revision from version")
 
     k8s_revision = k8s_revision_match.group(1)
 
-    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --revision {k8s_revision} --series {base}"
+    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --revision {k8s_revision} --series {series}"
 
     log.info("Creating product version for channel %s vision %s...\n %s", channel, version, product_version_cmd)
 
@@ -250,17 +262,19 @@ def _test_plan_instances(
 
 
 def _product_versions(channel, base, version) -> list[ProductVersion]:
+    if not (series := get_series(base)):
+        raise InvalidSQAInput("invalid base provided")
     
     # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
     # the revision of the k8s charm as the identifier. 
     k8s_revision_match = re.search(r'k8s-(\d+)', version)
 
     if not k8s_revision_match:
-        raise ExtractRevisionFailure
+        raise InvalidSQAInput
 
     k8s_revision = k8s_revision_match.group(1)
     
-    product_versions_cmd = f"productversion list --channel {channel} --revision {k8s_revision} --series {base} --format json"
+    product_versions_cmd = f"productversion list --channel {channel} --revision {k8s_revision} --series {series} --format json"
 
     log.info("Getting product versions for channel %s version %s\n %s", channel, version, product_versions_cmd)
 

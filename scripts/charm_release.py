@@ -228,7 +228,7 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
     except charmhub.CharmcraftFailure:
         log.exception(f"process track {track} failed because of the Charmcraft")
         return ProcessState.PROCESS_CI_FAILED
-    except sqa.ExtractRevisionFailure:
+    except sqa.InvalidSQAInput:
         log.exception(f"process track {track} failed because of revision could not be extracted from version")
         return ProcessState.PROCESS_CI_FAILED
 
