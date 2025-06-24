@@ -4,9 +4,10 @@ on:
   pull_request:
     paths:
       - .github/workflows/k8s-operator-charm-release.yaml
-  schedule:
-    # Run 20 minutes after midnight
-    - cron: "20 0 * * *"
+  # (berkayoz): Unpause after bug is fixed https://github.com/canonical/k8s-snap/pull/1586
+  # schedule:
+  #   # Run 20 minutes after midnight
+  #   - cron: "20 0 * * *"
   workflow_dispatch:
     inputs:
       tox_args:
