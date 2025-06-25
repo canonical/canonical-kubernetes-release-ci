@@ -33,7 +33,6 @@ on:
         required: false
         description: |-
           A space separated list of architectures to ignore when proposing promotions
-  pull_request:
 
   schedule:
     - cron: '0 0 * * *'  # Runs every midnight
