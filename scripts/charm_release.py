@@ -265,7 +265,7 @@ def main():
     log.info(f"Starting the charms {args.charms} release process for: {tracks}")
 
     results = {}
-    priority_generator = sqa.PriorityGenerator()
+    priority_generator = sqa.PriorityGenerator(initial=5)
     for track in tracks:
         process_state = process_track(args.charms, track, args.dry_run, priority_generator)
         if process_state in [
