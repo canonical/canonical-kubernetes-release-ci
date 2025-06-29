@@ -41,16 +41,17 @@ def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
             for flavor in flavors:
                 recipe_name = util.recipe_name(flavor, ver, tip)
                 LOG.info("  Searching for recipe %s", recipe_name)
-                if recipe := client.snaps.getByName(owner=owner, name=recipe_name):
+                if recipe := lp.snap_recipe(owner, recipe_name):
                     archive = recipe.auto_build_archive
                     channels = recipe.auto_build_channels
                     pocket = recipe.auto_build_pocket
 
                     dry_msg = " (dry-run)" if args.dry_run else ""
                     LOG.info("  Requesting build for %s%s", recipe_name, dry_msg)
-                    (not args.dry_run) and recipe.requestBuilds(
-                        archive=archive, channels=channels, pocket=pocket
-                    )
+                    if not args.dry_run:
+                        recipe.requestBuilds(
+                            archive=archive, channels=channels, pocket=pocket
+                        )
 
 
 def tip_branches(branches: Iterable[str]) -> Generator[str, None, None]:
