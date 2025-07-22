@@ -1,4 +1,4 @@
-k8s:
+{{app("k8s")}}:
     units: 3
     base: ubuntu@{{ base }}
     revision: {{ k8s_revision }}
@@ -6,10 +6,9 @@ k8s:
     channel: {{ channel }}
     config:
       containerd-custom-registries: '[{ "url": "http://10.131.231.165:5000", "host": "docker.io" }, {"url": "http://10.131.231.169:5000", "host": "registry.k8s.io"}]'
-k8s-worker:
+{{app("k8s-worker")}}:
     units: 3
     base: ubuntu@{{ base }}
     revision: {{ k8s_worker_revision }}
     constraints: arch=amd64 cores=2 mem=8192M root-disk=16384M allocate-public-ip=true
     channel: {{ channel }}
-

@@ -1,13 +1,13 @@
 import datetime
 import json
 import logging
-import os
 import re
 import shlex
 import subprocess
 import tempfile
 import threading
 from enum import StrEnum
+from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
@@ -135,7 +135,7 @@ def _create_product_version(channel: str, base: str, version: str) -> ProductVer
         raise InvalidSQAInput("invalid base provided")
 
     # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
-    # the revision of the k8s charm as the identifier. 
+    # the revision of the k8s charm as the identifier.
     k8s_revision_match = re.search(r'k8s-(\d+)', version)
 
     if not k8s_revision_match:
@@ -155,7 +155,7 @@ def _create_product_version(channel: str, base: str, version: str) -> ProductVer
 
     if not product_versions:
         raise SQAFailure("no product version returned from create command")
-    
+
     if len(product_versions) > 1:
         raise SQAFailure("Too many product versions from create command")
 
@@ -180,7 +180,7 @@ def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str, prior
 
     if not test_plan_instances:
         raise SQAFailure("no test plan instance returned from create command")
-    
+
     if len(test_plan_instances) > 1:
         raise SQAFailure("Too many test plan instance from create command")
 
@@ -241,7 +241,7 @@ def _test_plan_instances(
     test_plan_instances_cmd = f"testplaninstance list --format json --productversion-uuid {productversion_uuid} --status '{status.value.lower()}'"
 
     log.info(
-        "Getting test plan instances for product version %s with status %s...\n %s", 
+        "Getting test plan instances for product version %s with status %s...\n %s",
         productversion_uuid, status, test_plan_instances_cmd
     )
 
@@ -264,22 +264,22 @@ def _test_plan_instances(
 def _product_versions(channel, base, version) -> list[ProductVersion]:
     if not (series := get_series(base)):
         raise InvalidSQAInput("invalid base provided")
-    
+
     # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
-    # the revision of the k8s charm as the identifier. 
+    # the revision of the k8s charm as the identifier.
     k8s_revision_match = re.search(r'k8s-(\d+)', version)
 
     if not k8s_revision_match:
         raise InvalidSQAInput
 
     k8s_revision = k8s_revision_match.group(1)
-    
+
     product_versions_cmd = f"productversion list --channel {channel} --revision {k8s_revision} --series {series} --format json"
 
     log.info("Getting product versions for channel %s version %s\n %s", channel, version, product_versions_cmd)
 
     product_versions_response = _weebl_run(*shlex.split(product_versions_cmd))
-   
+
     log.info(product_versions_response)
     product_versions = parse_response_lists(ProductVersion, product_versions_response)
 
@@ -287,25 +287,28 @@ def _product_versions(channel, base, version) -> list[ProductVersion]:
 
 
 def start_release_test(channel, base, arch, revisions, version, priority):
-    product_versions = _product_versions(channel, base, version)
-    if product_versions:
+    if product_versions := _product_versions(channel, base, version):
         if len(product_versions) > 1:
             raise SQAFailure(f"the ({channel, base, arch}) is supposed to have only one product version for version {version}")
-
-        log.info(
-            f"using already defined product version {product_versions[0].uuid} to create TPI"
-        )
-
         product_version = product_versions[0]
+        log.info("using already defined product version %s to create TPI", product_version.uuid)
     else:
         product_version = _create_product_version(channel, base, version)
 
+    track = channel.split("/")[0]
     variables = {
+        "app": lambda name: name,
         "base": base,
         "arch": arch,
         "channel": channel,
+        "branch": f"release-{track}",
         **revisions
     }
+
+    if m := re.match(r"^(\d+)\.(\d+)", track):
+        if tuple(map(int, m.groups())) <= (1, 32):
+            # For channels <= 1.32 we use underscore names
+            variables["app"] = lambda name: name.replace("-", "_")
 
     addon = _create_addon(version, variables)
 
@@ -330,7 +333,7 @@ def _get_addon(name: str) -> Optional[Addon]:
     # there can be no addons for the provided name
     if not addons:
         return None
-    
+
     if len(addons) > 1:
         raise SQAFailure("Too many addons from cshow command")
 
@@ -339,51 +342,43 @@ def _get_addon(name: str) -> Optional[Addon]:
 def _create_addon(version, variables) -> Addon:
 
     # return the addon if it's already defined before
-    addon = _get_addon(version)
-    if addon:
+    if addon := _get_addon(version):
         log.info(f"Using the previously defined addon for {version}")
         return addon
 
     log.info(f"No previous addon found. Creating a new one for {version}...")
-    home_dir = os.path.expanduser("~")
-    with tempfile.TemporaryDirectory(dir=home_dir, delete=False) as temp_dir:
+    with tempfile.TemporaryDirectory(dir=Path.home(), delete=False) as temp_dir:
         # the name of the addon dir must be 'addon'
-        addon_dir = os.path.join(temp_dir, "addon")
-        os.makedirs(addon_dir)
-        
-        config_dir = os.path.join(addon_dir, "config")
-        os.makedirs(config_dir)  
+        addon_dir = Path(temp_dir) / "addon"
+        config_dir = addon_dir / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
 
         log.info(f"addon directory created at: {addon_dir}")
 
         env = Environment(
             loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"),
             autoescape=select_autoescape()
-            )
+        )
         template_files = env.list_templates(extensions="j2")
 
         for template_name in template_files:
             template = env.get_template(template_name)
             rendered = template.render(variables)
-            
-            output_filename = os.path.splitext(template_name)[0]
-            output_path = os.path.join(config_dir, output_filename)
 
-            with open(output_path, "w") as f:
-                f.write(rendered)
-        
-        create_addon_cmd = f"addon add --addon {addon_dir} --name {version} --format json"
+            output_filename = Path(template_name).stem
+            output_path = config_dir / output_filename
+            output_path.write_text(rendered)
 
-        log.info("Creating an addon for version %s\n %s", version, create_addon_cmd)
+        cmd = f"addon add --addon {addon_dir} --name {version} --format json"
+        log.info("Creating an addon for version %s\n %s", version, cmd)
+        resp = _weebl_run(*shlex.split(cmd))
 
-        create_addon_response = _weebl_run(*shlex.split(create_addon_cmd))
-
-    log.info(create_addon_response)
-    addons = parse_response_lists(Addon, create_addon_response)
+    log.info(resp)
+    addons = parse_response_lists(Addon, resp)
 
     if not addons:
         raise SQAFailure("no addon returned from create command")
-    
+
     if len(addons) > 1:
         raise SQAFailure("Too many addons from create command")
 
