@@ -1,22 +1,21 @@
-k8s:
+{{app("k8s")}}:
     units: 3
     base: ubuntu@{{ base }}
     constraints: arch=amd64 cores=2 mem=8192M root-disk=16384M allocate-public-ip=true
     channel: {{ channel }}
     revision: {{ k8s_revision }}
     config:
-      containerd-custom-registries: '[{ "url": "http://10.131.231.165:5000", "host":
-        "docker.io" }, {"url": "http://10.131.231.169:5000", "host": "registry.k8s.io"}]'
-k8s-worker:
+      containerd-custom-registries: '[{ "url": "http://10.131.231.165:5000", "host": "docker.io" }, {"url": "http://10.131.231.169:5000", "host": "registry.k8s.io"}]'
+{{app("k8s-worker")}}:
     units: 3
     base: ubuntu@{{ base }}
     constraints:  arch=amd64 cores=2 mem=8192M root-disk=16384M allocate-public-ip=true
     channel: {{ channel }}
     revision: {{ k8s_worker_revision }}
-openstack-integrator:
+{{app("openstack-integrator")}}:
   channel: latest/stable
   base: ubuntu@22.04
   config:
     lb-floating-network: provider-2734-net
-cinder-csi: {}
-openstack-cloud-controller: {}
+{{app("cinder-csi")}}: {}
+{{app("openstack-cloud-controller")}}: {}

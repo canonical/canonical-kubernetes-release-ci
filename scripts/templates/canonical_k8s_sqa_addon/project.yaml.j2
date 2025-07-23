@@ -1,0 +1,21 @@
+- merge_strategy: "/silo"
+  layers:
+  - name: "canonicalk8s_openstack"
+    config:
+      extra_args:
+        BRANCH: {{ branch }}
+
+  - name: "canonicalk8s_test"
+    config:
+      extra_args:
+        BRANCH: {{ branch }}
+
+  - name: "canonicalk8s_test_openstack"
+    config:
+      extra_args:
+        BRANCH: {{ branch }}
+
+  - name: "canonicalk8s_maas"
+    config:
+      extra_args:
+        BRANCH: {{ branch }}
