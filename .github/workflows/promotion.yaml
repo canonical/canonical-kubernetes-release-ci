@@ -23,6 +23,11 @@ on:
         default: 5
         description: |-
           The number of days in candidate risk to consider for promotion
+      select_tracks:
+        type: string
+        required: false
+        description: |-
+          A space separated list of tracks to include when proposing promotions
       ignore_tracks:
         type: string
         required: false
@@ -49,10 +54,6 @@ jobs:
       LPCREDS_B64: ${{ secrets.LP_CREDS }}
       ARGS: ''
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -66,6 +67,7 @@ jobs:
           ARGS="$ARGS --days-in-edge-risk ${{ inputs.days_in_edge_risk }}"
           ARGS="$ARGS --days-in-beta-risk ${{ inputs.days_in_beta_risk }}"
           ARGS="$ARGS --days-in-candidate-risk ${{ inputs.days_in_candidate_risk }}"
+          ARGS="$ARGS --select-tracks ${{ inputs.select_tracks }}"
           ARGS="$ARGS --ignore-tracks ${{ inputs.ignore_tracks }}"
           ARGS="$ARGS --ignore-arches ${{ inputs.ignore_architectures }}"
           echo "ARGS=$ARGS" >> $GITHUB_ENV
