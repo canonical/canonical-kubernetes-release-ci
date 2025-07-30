@@ -13,16 +13,18 @@ log = logging.getLogger(__name__)
 # Timeout for Store API request in seconds
 TIMEOUT = 10
 
+
 class CharmcraftFailure(Exception):
     pass
 
+
 class Bundle:
     """
-    Bundle defines a set of charms that need to be tested together. 
+    Bundle defines a set of charms that need to be tested together.
     For example k8s-operator bundle consists of two charms, namely,
     k8s and k8s-worker charms
     """
-    
+
     def __init__(self, name):
         self.data: defaultdict[str, RevisionMatrix] = defaultdict(None)
         self.name = name
@@ -33,50 +35,54 @@ class Bundle:
     def is_testable(self):
         if not len(self.data) or any(matrix is None for matrix in self.data.values()):
             return False
-        
-        # All the matrices in a bundle must have the same span of arch and bases 
-        # and have a revision values for each (arch, base) so that they can be 
+
+        # All the matrices in a bundle must have the same span of arch and bases
+        # and have a revision values for each (arch, base) so that they can be
         # tested alongside each other.
-        item: RevisionMatrix = random.choice(list(self.data.values())) # nosec
-        
+        item: RevisionMatrix = random.choice(list(self.data.values()))  # nosec
+
         bases = item.get_bases()
         archs = item.get_archs()
 
         for revision_matrix in self.data.values():
-            if revision_matrix.get_bases() != bases or revision_matrix.get_archs() != archs:
+            if (
+                revision_matrix.get_bases() != bases
+                or revision_matrix.get_archs() != archs
+            ):
                 return False
-            
+
             for base in bases:
                 for arch in archs:
                     if item.get(arch, base) and not revision_matrix.get(arch, base):
-                            return False
-                    
+                        return False
+
         return True
 
     def get_bases(self):
         try:
-            item: RevisionMatrix = random.choice(list(self.data.values())) # nosec
+            item: RevisionMatrix = random.choice(list(self.data.values()))  # nosec
             return item.get_bases()
         except StopIteration:
             return set()
-        
+
     def get_archs(self):
         try:
-            item: RevisionMatrix = random.choice(list(self.data.values())) # nosec
+            item: RevisionMatrix = random.choice(list(self.data.values()))  # nosec
             return item.get_archs()
         except StopIteration:
             return set()
-    
+
     def get_revisions(self, arch, base):
         revisions = {}
 
         for charm in self.data.keys():
-            revisions[f"{charm.replace("-", "_")}_revision"] = self.data[charm].get(arch, base)
+            revisions[f"{charm.replace('-', '_')}_revision"] = self.data[charm].get(
+                arch, base
+            )
 
         return revisions
 
     def get_version(self, arch, base):
-        
         charms = sorted(self.data.keys())
         if not charms:
             return None
@@ -86,7 +92,7 @@ class Bundle:
             revision_matrix = self.data[charm]
             if not revision_matrix:
                 return None
-                
+
             revision = revision_matrix.get(arch, base)
             if not revision:
                 return None
@@ -94,6 +100,7 @@ class Bundle:
             version += f"-{charm}-{revision}"
 
         return version
+
 
 class RevisionMatrix:
     """
@@ -115,7 +122,6 @@ class RevisionMatrix:
 
     def get_bases(self):
         return set(k[1] for k in self.data.keys())
-
 
     def get(self, arch, base):
         return self.data.get((arch, base))
@@ -156,29 +162,38 @@ def get_charmhub_auth_macaroon() -> str:
         raise ValueError("Malformed charmhub credentials")
     return v
 
+
+def find_revision(charm_name: str, channel: str, arch: str, base: str) -> int | None:
+    log.info(
+        f"Querying Charmhub to get revisions of {charm_name=} {channel=} {arch=} {base=} ..."
+    )
+    url = "https://api.charmhub.io/v2/charms/refresh"
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "actions": [
+            {
+                "action": "install",
+                "base": {"architecture": arch, "channel": base, "name": "ubuntu"},
+                "channel": channel,
+                "name": charm_name,
+                "instance-key": "query",
+            }
+        ],
+        "context": [],
+    }
+    r = requests.post(url, headers=headers, json=data, timeout=TIMEOUT)
+    return r.json()["results"][0]["charm"].get("revision") if r.status_code == 200 else None
+
+
 def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:
     """Get the revision of a charm in a channel."""
-    headers = {
-        "Content-Type": "application/json",
-    }
     log.info(f"Querying Charmhub to get revisions of {charm_name} in {channel}...")
-    
-    url = f"https://api.charmhub.io/v2/charms/info/{charm_name}?fields=channel-map"
-    r = requests.get(url, headers=headers, timeout=TIMEOUT)
-    r.raise_for_status()
-
-    data = json.loads(r.text)
-    log.info("Search for charm revisions in channel list...")
 
     revision_matrix = RevisionMatrix()
-    for channel_map in data.get("channel-map", []):
-        
-        if channel == channel_map["channel"]["name"]:
-            revision_matrix.set(
-                channel_map["channel"]["base"]["architecture"],
-                channel_map["channel"]["base"]["channel"],
-                int(channel_map["revision"]["revision"]),
-            )
+    for base in ["20.04", "22.04", "24.04", "26.04", "28.04", "30.04"]:
+        for arch in ["amd64", "arm64"]:
+            if revision := find_revision(charm_name, channel, arch, base):
+                revision_matrix.set(arch, base, revision)
 
     return revision_matrix
 
