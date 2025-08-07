@@ -8,7 +8,7 @@ Scenarios:
 
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import charm_release
 import pytest
@@ -52,11 +52,16 @@ def test_no_release_run(mock_sqa, mock_charmhub):
     mock_sqa.current_test_plan_instance_status.return_value = None
 
     priority_generator = sqa.PriorityGenerator()
-    charm_release.process_track(["k8s"], "1.32", False, priority_generator)
+    mock_args = MagicMock()
+    mock_args.from_risk = "candidate"
+    mock_args.to_risk = "stable"
+    mock_args.dry_run = False
+    mock_args.charms = ["k8s"]
+    charm_release.process_track("1.32", priority_generator, mock_args)
 
-    mock_sqa.start_release_test.assert_called_once_with("1.32/candidate", 
-                                                        "22.04", "amd64", 
-                                                        {"k8s_revision": "741"}, 
+    mock_sqa.start_release_test.assert_called_once_with("1.32/candidate",
+                                                        "22.04", "amd64",
+                                                        {"k8s_revision": "741"},
                                                         "k8s-operator-k8s-741", 1)
     mock_charmhub.promote_charm.assert_not_called()
 
@@ -67,6 +72,11 @@ def test_no_new_release_no_action(mock_sqa, mock_charmhub):
     mock_sqa.current_test_plan_instance_status.return_value = None
 
     priority_generator = sqa.PriorityGenerator()
-    charm_release.process_track(["k8s"], "1.32", False, priority_generator)
+    mock_args = MagicMock()
+    mock_args.from_risk = "candidate"
+    mock_args.to_risk = "stable"
+    mock_args.dry_run = False
+    mock_args.charms = ["k8s"]
+    charm_release.process_track("1.32", priority_generator, mock_args)
     mock_sqa.start_release_test.assert_not_called()
     mock_charmhub.promote_charm.assert_not_called()
