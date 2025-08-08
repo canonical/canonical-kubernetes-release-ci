@@ -5,10 +5,10 @@ The implementation works as a state machine that queries the current state of ea
 and then decides what to do next.The script is designed to be idempotent, meaning that it
 can be run multiple times without causing any harm.
 
-For each track to be published on stable from candidate, there are more than one revisions 
-that need to be tested, each corresponding to a unique (arch, base) of each charm for which 
-a revision has been published. We call the set of all such revisions a revision matrix of a 
-track. For example track 1.32 of k8s can have the following matrix of revisions on candidate 
+For each track to be published on stable from candidate, there are more than one revisions
+that need to be tested, each corresponding to a unique (arch, base) of each charm for which
+a revision has been published. We call the set of all such revisions a revision matrix of a
+track. For example track 1.32 of k8s can have the following matrix of revisions on candidate
 risk level:
 
         20.04   22.04   24.04
@@ -21,19 +21,19 @@ And the following matrix of revisions published on stable:
 amd64   456     457     458
 arm64   459     460     461
 
-The goal is to promote all 6 revisions of the 1.32/candidate to 1.32/stable. The same goes for 
-k8s-worker charm and any other charm that might be needed to have a complete test. We call the 
+The goal is to promote all 6 revisions of the 1.32/candidate to 1.32/stable. The same goes for
+k8s-worker charm and any other charm that might be needed to have a complete test. We call the
 revision matrices of all the necessary charms a bundle, which should not be confused with charm
-bundles. 
+bundles.
 
 for each track:
-    for each charm: 
+    for each charm:
         get data for current track state:
         - extract all the revisions corresponding to each (arch, base) published on channel=<track>/candidate
         - extract all the revisions corresponding to each (arch, base) published on stable_channel=<track>/stable
 
-    skip if all the charms have their revsions on <track>/candidate already published in <track>/stable
-    
+    skip if all the charms have their revisions on <track>/candidate already published in <track>/stable
+
     for each (arch, base):
         extract the corresponding revision of each charm on channel=<track>/candidate
         try the following reconciliation pattern:
@@ -51,8 +51,8 @@ for each track:
             - TEST_FAILED: manual intervention with SQA required
 
     aggregate the results for all the revisions checked for each track:
-        - If all revisions have TEST_SUCCESS then report the track state as succeeded 
-        - If any of the revisions have TEST_FAILED then report the track state as failed 
+        - If all revisions have TEST_SUCCESS then report the track state as succeeded
+        - If any of the revisions have TEST_FAILED then report the track state as failed
         - If some of the tests are still in TEST_IN_PROGRESS report the track as in progress
 
 TODOs:
@@ -117,10 +117,10 @@ def ensure_track_state(
     for arch in bundle.get_archs():
         # Note(Reza): Currently SQA only supports the test for the amd64 architecture
         # we should differentiate the TPIs for different architectures once arm64 is
-        # also supported. I have not put that in a file to avoid creating a perception 
+        # also supported. I have not put that in a file to avoid creating a perception
         # that more than one architecture could be tested. Having more than one arch
-        # would break the pipeline by creating duplicates as there are no ways to 
-        # distinguish test environments for architectures on SQA side. 
+        # would break the pipeline by creating duplicates as there are no ways to
+        # distinguish test environments for architectures on SQA side.
         if arch != "amd64":
             continue
 
@@ -135,11 +135,11 @@ def ensure_track_state(
             )
             if not current_test_plan_instance_status:
                 revisions = bundle.get_revisions(arch, base)
-                # We are creating TPIs with different priorities to avoid overloading the 
+                # We are creating TPIs with different priorities to avoid overloading the
                 # SQA platform
-                
+
                 log.info(f"No TPI found. Creating a new TPI for {revisions} with priority {priority}")
-                
+
                 if not dry_run:
                     sqa.start_release_test(channel, base, arch, revisions, version, priority)
 
@@ -151,56 +151,56 @@ def ensure_track_state(
     return track_state
 
 
-def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_generator: sqa.PriorityGenerator) -> ProcessState:
+def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -> ProcessState:
     """Process the given track based on its current state."""
 
-    candidate_channel = f"{track}/candidate"
-    stable_channel = f"{track}/stable"
+    dry_run: bool = args.dry_run
+    bundle_charms: list[str] = args.charms
+    from_channel = f"{track}/{args.from_risk}"
+    to_channel = f"{track}/{args.to_risk}"
     k8s_operator_bundle = charmhub.Bundle("k8s-operator")
-    at_least_one_charm_in_candidate = False
+    at_least_one_charm = False
     for charm in bundle_charms:
         log.info(f"Getting revisions for {charm} charm on track {track}")
         try:
-            candidate_revision_matrix = charmhub.get_revision_matrix(
-                charm, candidate_channel
-            )
+            from_revision_matrix = charmhub.get_revision_matrix(charm, from_channel)
         except HTTPError:
-            log.exception(f"failed to get candidate revision matrix for charm {charm} channel {candidate_channel}")
+            log.exception(f"failed to get revision matrix for charm {charm} channel={from_channel}")
             return ProcessState.PROCESS_CI_FAILED
-        log.info("Channel %s revisions:\n %s", candidate_channel, candidate_revision_matrix)
+        log.info("Channel %s revisions:\n %s", from_channel, from_revision_matrix)
 
         try:
-            stable_revision_matrix = charmhub.get_revision_matrix(charm, stable_channel)
+            stable_revision_matrix = charmhub.get_revision_matrix(charm, to_channel)
         except HTTPError:
-            log.exception(f"failed to get stable revision matrix for charm {charm} channel {stable_channel}")
+            log.exception(f"failed to get revision matrix for charm {charm} channel={to_channel}")
             return ProcessState.PROCESS_CI_FAILED
-        log.info("Channel %s revisions:\n %s", stable_channel, stable_revision_matrix)
+        log.info("Channel %s revisions:\n %s", to_channel, stable_revision_matrix)
 
-        if not candidate_revision_matrix:
-            log.info(f"The channel {candidate_channel} of {charm} has no revisions.")
+        if not from_revision_matrix:
+            log.info(f"The channel {from_channel} of {charm} has no revisions.")
             k8s_operator_bundle.set(charm, stable_revision_matrix)
             continue
 
-        if candidate_revision_matrix == stable_revision_matrix:
+        if from_revision_matrix == stable_revision_matrix:
             log.info(
-                f"The channel {candidate_channel} of {charm} is already published in {stable_channel}."
+                f"The channel {from_channel} of {charm} is already published in {to_channel}."
             )
             k8s_operator_bundle.set(charm, stable_revision_matrix)
             continue
-        at_least_one_charm_in_candidate = True
-        k8s_operator_bundle.set(charm, candidate_revision_matrix)
+        at_least_one_charm = True
+        k8s_operator_bundle.set(charm, from_revision_matrix)
 
     if not k8s_operator_bundle.is_testable():
-        log.info(f"k8s operator has a missing charm in track {track}. Skipping...")
+        log.info(f"k8s is missing a charm in channel={from_channel}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
-    
-    if not at_least_one_charm_in_candidate:
-        log.info(f"no charm has candidate revisions on track {track}. Skipping...")
+
+    if not at_least_one_charm:
+        log.info(f"Charm has no revisions in channel={from_channel}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
-    
+
     try:
         state = ensure_track_state(
-            candidate_channel, k8s_operator_bundle, dry_run, priority_generator
+            from_channel, k8s_operator_bundle, dry_run, priority_generator
         )
         log.info(f"Track {track} is in state: {state}")
 
@@ -211,7 +211,7 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
             log.info(f"Release run for {track} succeeded. Promoting charm revisions...")
             if not dry_run:
                 for charm in bundle_charms:
-                    charmhub.promote_charm(charm, candidate_channel, stable_channel)
+                    charmhub.promote_charm(charm, from_channel, to_channel)
             return ProcessState.PROCESS_SUCCESS
         elif state.in_progress:
             log.info(f"Release run for {track} is still in progress. No action needed.")
@@ -233,7 +233,6 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
         return ProcessState.PROCESS_CI_FAILED
 
 
-
 def main():
     parser = argparse.ArgumentParser(
         description="Automate k8s-operator charm release process."
@@ -244,6 +243,14 @@ def main():
     parser.add_argument(
         "--charms", nargs="+", default=["k8s", "k8s-worker"], help="List of charms used in k8s-operator"
     )
+    parser.add_argument(
+        "--from-risk", default="candidate",
+        help="Source risk level for the charm release process (default: candidate)"
+    )
+    parser.add_argument(
+        "--to-risk", default="stable",
+        help="Target risk level for the charm release process (default: stable)"
+    )
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
         "--supported-tracks", nargs="+", default=[], help="List of tracks to check for"
@@ -251,7 +258,7 @@ def main():
     group.add_argument("--after", nargs=1, default="1.32", help="Least supported track")
 
     args = parser.parse_args()
-    
+
     if args.supported_tracks:
         tracks = args.supported_tracks
     else:
@@ -267,13 +274,13 @@ def main():
     results = {}
     priority_generator = sqa.PriorityGenerator(initial=5)
     for track in tracks:
-        process_state = process_track(args.charms, track, args.dry_run, priority_generator)
+        process_state = process_track(track, priority_generator, args)
         if process_state in [
             ProcessState.PROCESS_IN_PROGRESS,
             ProcessState.PROCESS_UNCHANGED,
         ]:
             continue
-        results[f"{track}"] = str(process_state)
+        results[track] = str(process_state)
 
     with open("results.txt", "w") as f:
         for key, value in results.items():
