@@ -1,3 +1,5 @@
+"""Utility functions for interacting with GitHub Actions runners."""
+
 REPO_RUNNER_LABEL_MAP = {
     "amd64": "X64",
     "arm64": "ARM64",

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Promote revisions of the Canonical Kubernetes snap through the risk levels of each track."""
 
 import argparse
 import dataclasses
@@ -29,7 +30,8 @@ Promote revisions of the Canonical Kubernetes snap through the risk levels of ea
 Expects snapcraft to be logged in with sufficient permissions, if not dry-running.
 The script only targets releases. The 'latest' track is ignored.
 Each revision is promoted after being at a risk level for a certain amount of days.
-The script will only promote a revision to stable if there is already another revision for this track at stable.
+The script will only promote a revision to stable if there is already another revision
+   for this track at stable.
 The first stable release for each track requires blessing from SolQA and is promoted manually.
 """
 
@@ -53,13 +55,18 @@ TRACK_RE = re.compile(r"^(\d+)\.(\d+)(\S*)$")
 
 
 class Hyphenized:
+    """Base class for dataclasses that convert hyphenated keys to snake_case."""
+
     @classmethod
     def bake(cls, *args, **kwargs):
+        """Create an instance of the class, converting hyphenated keys to snake_case."""
         return cls(*args, **{s.replace("-", "_").lower(): v for s, v in kwargs.items()})
 
 
 @dataclasses.dataclass
 class ChannelMetadata(Hyphenized):
+    """Metadata for a snap or charm revision channel."""
+
     name: Optional[str] = None
     track: Optional[str] = None
     risk: Optional[str] = None
@@ -69,6 +76,8 @@ class ChannelMetadata(Hyphenized):
 
 @dataclasses.dataclass
 class Channel(Hyphenized):
+    """A channel of a snap or charm revision."""
+
     channel: ChannelMetadata
     created_at: Optional[str] = None
     revision: Optional[int] = None
@@ -78,19 +87,19 @@ class Channel(Hyphenized):
 
     @cached_property
     def next_risk(self):
+        """Get the next risk level for this channel."""
         return NEXT_RISK[RISK_LEVELS.index(self.risk)]
 
     def __getattr__(self, name):
+        """Allow access to channel metadata attributes directly."""
         return getattr(self.channel, name)
 
 
 EMPTY_CHANNEL = Channel(channel=ChannelMetadata())
 
 
-def _build_upgrade_channels(
-    channel: Channel, channels: dict[str, Channel]
-) -> list[list[str]]:
-    """Build the upgrade channels for a proposal within this architecture
+def _build_upgrade_channels(channel: Channel, channels: dict[str, Channel]) -> list[list[str]]:
+    """Build the upgrade channels for a proposal within this architecture.
 
     At most, there will be three validation tests:
     - Upgrade from the next risk to this risk within the channel
@@ -108,8 +117,8 @@ def _build_upgrade_channels(
 
     Returns:
         A valid list of upgrade proposal stages.
-    """
 
+    """
     track = channel.track
     next_risk = channel.next_risk
 
@@ -121,9 +130,7 @@ def _build_upgrade_channels(
 
     # First highest risk on this track (excluding next-risk)
     same_track_channels = [
-        f"{track}/{r}"
-        for idx, r in enumerate(RISK_LEVELS)
-        if idx > RISK_LEVELS.index(next_risk)
+        f"{track}/{r}" for idx, r in enumerate(RISK_LEVELS) if idx > RISK_LEVELS.index(next_risk)
     ]
     for source in reversed(same_track_channels):
         if source in channels:
@@ -246,9 +253,7 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             and channels.get(f"{track}/{next_risk}", EMPTY_CHANNEL).version
             != channels.get(f"{track}/{risk}", EMPTY_CHANNEL).version
         )
-        revision_in_stable = bool(
-            channels.get(f"{track}/stable", EMPTY_CHANNEL).revision
-        )
+        revision_in_stable = bool(channels.get(f"{track}/stable", EMPTY_CHANNEL).revision)
 
         def _get_proposal(next_risk):
             final_channel = f"{track}/{next_risk}"
@@ -256,9 +261,7 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             proposal = {}
             proposal["arch"] = arch
             proposal["branch"] = lp.branch_from_track(util.SNAP_NAME, track)
-            proposal["upgrade-channels"] = _build_upgrade_channels(
-                channel_info, channels
-            )
+            proposal["upgrade-channels"] = _build_upgrade_channels(channel_info, channels)
             proposal["revision"] = revision
             proposal["track"] = track
             proposal["next-risk"] = next_risk
@@ -311,11 +314,10 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
 
 
 def release_revision(args):
-    # Note: we cannot use `snapcraft promote` here because it does not allow to promote from edge to beta without manual confirmation.
+    # Note: we cannot use `snapcraft promote` here because it does not allow
+    # to promote from edge to beta without manual confirmation.
     revision, channel = args.snap_revision, args.snap_channel
-    LOG.info(
-        "Promote r%s to %s%s", revision, channel, args.dry_run and " (dry-run)" or ""
-    )
+    LOG.info("Promote r%s to %s%s", revision, channel, args.dry_run and " (dry-run)" or "")
     args.dry_run or subprocess.run(
         ["/snap/bin/snapcraft", "release", util.SNAP_NAME, revision, channel],
         check=True,
@@ -333,13 +335,9 @@ def execute_proposal_test(args):
 
 
 def main():
-    arg_parser = argparse.ArgumentParser(
-        Path(__file__).name, usage=USAGE, description=DESCRIPTION
-    )
+    arg_parser = argparse.ArgumentParser(Path(__file__).name, usage=USAGE, description=DESCRIPTION)
     subparsers = arg_parser.add_subparsers(required=True)
-    propose_args = subparsers.add_parser(
-        "propose", help="Propose revisions for promotion"
-    )
+    propose_args = subparsers.add_parser("propose", help="Propose revisions for promotion")
     propose_args.add_argument(
         "--gh-action",
         action="store_true",
@@ -378,14 +376,10 @@ def main():
     propose_args.set_defaults(func=create_proposal)
 
     test_args = subparsers.add_parser("test", help="Run the test for a proposal")
-    test_args.add_argument(
-        "--branch", required=True, help="The branch from which to test"
-    )
+    test_args.add_argument("--branch", required=True, help="The branch from which to test")
     test_args.set_defaults(func=execute_proposal_test)
 
-    promote_args = subparsers.add_parser(
-        "promote", help="Promote the proposed revisions"
-    )
+    promote_args = subparsers.add_parser("promote", help="Promote the proposed revisions")
     promote_args.add_argument(
         "--snap-revision",
         required=True,

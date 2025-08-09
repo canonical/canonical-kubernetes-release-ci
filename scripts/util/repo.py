@@ -1,3 +1,5 @@
+"""Utility functions for git repository operations."""
+
 import contextlib
 import logging
 import os
@@ -20,8 +22,7 @@ def clone(
     shallow: bool = True,
     base_dir: str | None = None,
 ) -> Generator[Path, Any, Any]:
-    """
-    Clone a git repository on a temporary directory and return the directory.
+    """Clone a git repository on a temporary directory and return the directory.
 
     Example usage:
 
@@ -30,7 +31,6 @@ def clone(
         print("Repo cloned at", dir)
     ```
     """
-
     with tempfile.TemporaryDirectory(dir=base_dir) as tmpdir:
         cmd = ["git", "clone", repo_url, tmpdir]
         if repo_tag:
@@ -47,9 +47,7 @@ def is_branch(repo: str, branch_name: str) -> bool:
     return f"refs/heads/{branch_name}" in commits
 
 
-def _commit_sha1_per_branch(
-    repo: str, branch_name: None | str = None
-) -> Dict[str, str]:
+def _commit_sha1_per_branch(repo: str, branch_name: None | str = None) -> Dict[str, str]:
     out = _parse_output(
         ["git", "ls-remote", "--heads", repo] + ([branch_name] if branch_name else [])
     )

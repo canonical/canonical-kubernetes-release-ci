@@ -1,3 +1,5 @@
+"""Utility functions for interacting with Launchpad and Snap recipes."""
+
 import logging
 import os
 from configparser import ConfigParser
@@ -52,9 +54,7 @@ def snap_recipe(owner: PersonSet, name: str):
 def snap_by_owner(snap: str):
     """Return the owner object for a given owner name."""
     lp_client = client()
-    return lp_client.snaps.findByStoreName(
-        owner=lp_client.people[OWNER], store_name=snap
-    )
+    return lp_client.snaps.findByStoreName(owner=lp_client.people[OWNER], store_name=snap)
 
 
 def branch_from_track(snap, track):

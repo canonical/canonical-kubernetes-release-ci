@@ -1,3 +1,5 @@
+"""Utility functions for interacting with Charmhub and managing charm revisions."""
+
 import base64
 import json
 import logging
@@ -14,25 +16,30 @@ log = logging.getLogger(__name__)
 TIMEOUT = 10
 
 
-class CharmcraftFailure(Exception):
+class CharmcraftError(Exception):
+    """Exception raised when a charmcraft command fails."""
+
     pass
 
 
 class Bundle:
-    """
-    Bundle defines a set of charms that need to be tested together.
+    """Bundle defines a set of charms that need to be tested together.
+
     For example k8s-operator bundle consists of two charms, namely,
     k8s and k8s-worker charms
     """
 
     def __init__(self, name):
+        """Initialize a Bundle with a name and an empty revision matrix."""
         self.data: defaultdict[str, RevisionMatrix] = defaultdict(None)
         self.name = name
 
     def set(self, charm, revision_matrix):
+        """Set the revision matrix for a charm in the bundle."""
         self.data[charm] = revision_matrix
 
     def is_testable(self):
+        """Check if the bundle is testable."""
         if not len(self.data) or any(matrix is None for matrix in self.data.values()):
             return False
 
@@ -45,10 +52,7 @@ class Bundle:
         archs = item.get_archs()
 
         for revision_matrix in self.data.values():
-            if (
-                revision_matrix.get_bases() != bases
-                or revision_matrix.get_archs() != archs
-            ):
+            if revision_matrix.get_bases() != bases or revision_matrix.get_archs() != archs:
                 return False
 
             for base in bases:
@@ -59,6 +63,7 @@ class Bundle:
         return True
 
     def get_bases(self):
+        """Get the unique bases in the bundle."""
         try:
             item: RevisionMatrix = random.choice(list(self.data.values()))  # nosec
             return item.get_bases()
@@ -66,6 +71,7 @@ class Bundle:
             return set()
 
     def get_archs(self):
+        """Get the unique architectures in the bundle."""
         try:
             item: RevisionMatrix = random.choice(list(self.data.values()))  # nosec
             return item.get_archs()
@@ -73,16 +79,16 @@ class Bundle:
             return set()
 
     def get_revisions(self, arch, base):
+        """Get the revisions for the bundle based on the architecture and base."""
         revisions = {}
 
         for charm in self.data.keys():
-            revisions[f"{charm.replace('-', '_')}_revision"] = self.data[charm].get(
-                arch, base
-            )
+            revisions[f"{charm.replace('-', '_')}_revision"] = self.data[charm].get(arch, base)
 
         return revisions
 
     def get_version(self, arch, base):
+        """Get the version string for the bundle based on the revisions."""
         charms = sorted(self.data.keys())
         if not charms:
             return None
@@ -103,7 +109,8 @@ class Bundle:
 
 
 class RevisionMatrix:
-    """
+    """RevisionMatrix is a matrix of revisions for a charm in a channel.
+
     For each tuple of (name, channel, arch, base) there is a unique charm artifact
     in Charmhub. RevisionMatrix is a matrix of (arch, base) revisions, if any, for
     a specific (name, channel) tuple.
@@ -112,29 +119,37 @@ class RevisionMatrix:
     """
 
     def __init__(self):
+        """Initialize an empty RevisionMatrix."""
         self.data: defaultdict[tuple[str, str], str] = defaultdict(str)
 
     def set(self, arch, base, revision):
+        """Set the revision for a specific architecture and base."""
         self.data[(arch, base)] = revision
 
     def get_archs(self):
-        return set(k[0] for k in self.data.keys())
+        """Get the unique architectures in the matrix."""
+        return {k[0] for k in self.data.keys()}
 
     def get_bases(self):
-        return set(k[1] for k in self.data.keys())
+        """Get the unique bases in the matrix."""
+        return {k[1] for k in self.data.keys()}
 
     def get(self, arch, base):
+        """Get the revision for a specific architecture and base."""
         return self.data.get((arch, base))
 
     def __eq__(self, other):
+        """Check if two RevisionMatrix instances are equal."""
         return dict(self.data) == dict(other.data)
 
     def __bool__(self):
+        """Return True if the matrix has at least one entry."""
         if not self.data.keys():
             return False
         return all(value is not None for value in self.data.values())
 
     def __str__(self):
+        """Return a string representation of the matrix."""
         archs = sorted(self.get_archs())
         bases = sorted(self.get_bases())
         result = ["\t" + "\t".join(bases)]
@@ -164,9 +179,7 @@ def get_charmhub_auth_macaroon() -> str:
 
 
 def find_revision(charm_name: str, channel: str, arch: str, base: str) -> int | None:
-    log.info(
-        f"Querying Charmhub to get revisions of {charm_name=} {channel=} {arch=} {base=} ..."
-    )
+    log.info(f"Querying Charmhub to get revisions of {charm_name=} {channel=} {arch=} {base=} ...")
     url = "https://api.charmhub.io/v2/charms/refresh"
     headers = {"Content-Type": "application/json"}
     data = {
@@ -206,4 +219,4 @@ def promote_charm(charm_name, from_channel, to_channel):
             check=True,
         )
     except subprocess.CalledProcessError as e:
-        raise CharmcraftFailure(f"promote charm failed: {e.stderr}")
+        raise CharmcraftError(f"promote charm failed: {e.stderr}")

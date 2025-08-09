@@ -1,14 +1,13 @@
-"""
-Script to automate the k8s-operator charms release process.
+"""Script to automate the k8s-operator charms release process.
 
 The implementation works as a state machine that queries the current state of each track
 and then decides what to do next.The script is designed to be idempotent, meaning that it
 can be run multiple times without causing any harm.
 
-For each track to be published on stable from candidate, there are more than one revisions 
-that need to be tested, each corresponding to a unique (arch, base) of each charm for which 
-a revision has been published. We call the set of all such revisions a revision matrix of a 
-track. For example track 1.32 of k8s can have the following matrix of revisions on candidate 
+For each track to be published on stable from candidate, there are more than one revisions
+that need to be tested, each corresponding to a unique (arch, base) of each charm for which
+a revision has been published. We call the set of all such revisions a revision matrix of a
+track. For example track 1.32 of k8s can have the following matrix of revisions on candidate
 risk level:
 
         20.04   22.04   24.04
@@ -21,19 +20,22 @@ And the following matrix of revisions published on stable:
 amd64   456     457     458
 arm64   459     460     461
 
-The goal is to promote all 6 revisions of the 1.32/candidate to 1.32/stable. The same goes for 
-k8s-worker charm and any other charm that might be needed to have a complete test. We call the 
+The goal is to promote all 6 revisions of the 1.32/candidate to 1.32/stable. The same goes for
+k8s-worker charm and any other charm that might be needed to have a complete test. We call the
 revision matrices of all the necessary charms a bundle, which should not be confused with charm
-bundles. 
+bundles.
 
 for each track:
-    for each charm: 
+    for each charm:
         get data for current track state:
-        - extract all the revisions corresponding to each (arch, base) published on channel=<track>/candidate
-        - extract all the revisions corresponding to each (arch, base) published on stable_channel=<track>/stable
+        - extract all the revisions corresponding to each (arch, base)
+          published on channel=<track>/candidate
+        - extract all the revisions corresponding to each (arch, base)
+          published on stable_channel=<track>/stable
 
-    skip if all the charms have their revsions on <track>/candidate already published in <track>/stable
-    
+    skip if all the charms have their revisions on <track>/candidate
+        already published in <track>/stable
+
     for each (arch, base):
         extract the corresponding revision of each charm on channel=<track>/candidate
         try the following reconciliation pattern:
@@ -51,8 +53,8 @@ for each track:
             - TEST_FAILED: manual intervention with SQA required
 
     aggregate the results for all the revisions checked for each track:
-        - If all revisions have TEST_SUCCESS then report the track state as succeeded 
-        - If any of the revisions have TEST_FAILED then report the track state as failed 
+        - If all revisions have TEST_SUCCESS then report the track state as succeeded
+        - If any of the revisions have TEST_FAILED then report the track state as failed
         - If some of the tests are still in TEST_IN_PROGRESS report the track as in progress
 
 TODOs:
@@ -73,54 +75,69 @@ log = logging.getLogger(__name__)
 
 
 class TrackState:
+    """Class to represent the state of a track."""
+
     def __init__(self):
+        """Initialize the track state with an empty state map."""
         self._state_map: Dict[str, sqa.TestPlanInstanceStatus] = {}
 
     def set_state(self, version, state: sqa.TestPlanInstanceStatus):
+        """Set the state of a track for a given version."""
         self._state_map[version] = state
 
     def __str__(self):
+        """Return a string representation of the track state."""
         return str([(key, str(value)) for key, value in self._state_map.items()])
 
     @property
     def empty(self) -> bool:
+        """Check if the track state is empty."""
         return not self._state_map
 
     @property
     def failed(self) -> bool:
+        """Check if any of the revisions are failed."""
         return any(s.failed for s in self._state_map.values())
 
     @property
     def succeeded(self) -> bool:
+        """Check if all revisions are succeeded."""
         if self.empty:
             return False
         return all(s.succeeded for s in self._state_map.values())
 
     @property
     def in_progress(self) -> bool:
+        """Check if any of the revisions are still in progress."""
         if self.failed:
             return False
         return any(s.in_progress for s in self._state_map.values())
 
 
 class ProcessState(StrEnum):
+    """Enum representing the state of the process for a track."""
+
     PROCESS_SUCCESS = auto()
     PROCESS_IN_PROGRESS = auto()
     PROCESS_FAILED = auto()
     PROCESS_CI_FAILED = auto()
     PROCESS_UNCHANGED = auto()
 
+
 def ensure_track_state(
-    channel, bundle: charmhub.Bundle, dry_run: bool, priority_generator: sqa.PriorityGenerator
+    channel,
+    bundle: charmhub.Bundle,
+    dry_run: bool,
+    priority_generator: sqa.PriorityGenerator,
 ) -> TrackState:
     track_state = TrackState()
     for arch in bundle.get_archs():
         # Note(Reza): Currently SQA only supports the test for the amd64 architecture
         # we should differentiate the TPIs for different architectures once arm64 is
-        # also supported. I have not put that in a file to avoid creating a perception 
+        # also supported. I have not put that in a file to avoid creating a perception
         # that more than one architecture could be tested. Having more than one arch
-        # would break the pipeline by creating duplicates as there are no ways to 
-        # distinguish test environments for architectures on SQA side. 
+        # would break the pipeline by creating duplicates as there are no ways to
+        # distinguish test environments for architectures on SQA side.
         if arch != "amd64":
             continue
 
@@ -135,11 +152,13 @@ def ensure_track_state(
             )
             if not current_test_plan_instance_status:
                 revisions = bundle.get_revisions(arch, base)
-                # We are creating TPIs with different priorities to avoid overloading the 
+                # We are creating TPIs with different priorities to avoid overloading the
                 # SQA platform
-                
-                log.info(f"No TPI found. Creating a new TPI for {revisions} with priority {priority}")
-                
+
+                log.info(
+                    f"No TPI found. Creating a new TPI for {revisions} with priority {priority}"
+                )
+
                 if not dry_run:
                     sqa.start_release_test(channel, base, arch, revisions, version, priority)
 
@@ -151,9 +170,13 @@ def ensure_track_state(
     return track_state
 
 
-def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_generator: sqa.PriorityGenerator) -> ProcessState:
+def process_track(
+    bundle_charms: list[str],
+    track: str,
+    dry_run: bool,
+    priority_generator: sqa.PriorityGenerator,
+) -> ProcessState:
     """Process the given track based on its current state."""
-
     candidate_channel = f"{track}/candidate"
     stable_channel = f"{track}/stable"
     k8s_operator_bundle = charmhub.Bundle("k8s-operator")
@@ -161,18 +184,21 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
     for charm in bundle_charms:
         log.info(f"Getting revisions for {charm} charm on track {track}")
         try:
-            candidate_revision_matrix = charmhub.get_revision_matrix(
-                charm, candidate_channel
-            )
+            candidate_revision_matrix = charmhub.get_revision_matrix(charm, candidate_channel)
         except HTTPError:
-            log.exception(f"failed to get candidate revision matrix for charm {charm} channel {candidate_channel}")
+            log.exception(
+                f"failed to get candidate revision matrix for "
+                f"charm {charm} channel {candidate_channel}"
+            )
             return ProcessState.PROCESS_CI_FAILED
         log.info("Channel %s revisions:\n %s", candidate_channel, candidate_revision_matrix)
 
         try:
             stable_revision_matrix = charmhub.get_revision_matrix(charm, stable_channel)
         except HTTPError:
-            log.exception(f"failed to get stable revision matrix for charm {charm} channel {stable_channel}")
+            log.exception(
+                f"failed to get stable revision matrix for charm {charm} channel {stable_channel}"
+            )
             return ProcessState.PROCESS_CI_FAILED
         log.info("Channel %s revisions:\n %s", stable_channel, stable_revision_matrix)
 
@@ -183,7 +209,10 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
 
         if candidate_revision_matrix == stable_revision_matrix:
             log.info(
-                f"The channel {candidate_channel} of {charm} is already published in {stable_channel}."
+                "The channel %s of %s is already published in %s.",
+                candidate_channel,
+                charm,
+                stable_channel,
             )
             k8s_operator_bundle.set(charm, stable_revision_matrix)
             continue
@@ -193,11 +222,11 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
     if not k8s_operator_bundle.is_testable():
         log.info(f"k8s operator has a missing charm in track {track}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
-    
+
     if not at_least_one_charm_in_candidate:
         log.info(f"no charm has candidate revisions on track {track}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
-    
+
     try:
         state = ensure_track_state(
             candidate_channel, k8s_operator_bundle, dry_run, priority_generator
@@ -222,27 +251,32 @@ def process_track(bundle_charms: list[str], track: str, dry_run: bool, priority_
         else:
             log.info(f"Unknown state for {track}. Skipping...")
             return ProcessState.PROCESS_CI_FAILED
-    except sqa.SQAFailure:
+    except sqa.SQAFailureError:
         log.exception(f"process track {track} failed because of the SQA")
         return ProcessState.PROCESS_CI_FAILED
-    except charmhub.CharmcraftFailure:
+    except charmhub.CharmcraftError:
         log.exception(f"process track {track} failed because of the Charmcraft")
         return ProcessState.PROCESS_CI_FAILED
-    except sqa.InvalidSQAInput:
-        log.exception(f"process track {track} failed because of revision could not be extracted from version")
+    except sqa.InvalidSQAInputError:
+        log.exception(
+            f"process track {track} failed because of revision could not be extracted from version"
+        )
         return ProcessState.PROCESS_CI_FAILED
-
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Automate k8s-operator charm release process."
+    parser = argparse.ArgumentParser(description="Automate k8s-operator charm release process.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        required=False,
+        help="Dry run the charm release process",
     )
     parser.add_argument(
-        "--dry-run", action="store_true", required=False, help="Dry run the charm release process"
-    )
-    parser.add_argument(
-        "--charms", nargs="+", default=["k8s", "k8s-worker"], help="List of charms used in k8s-operator"
+        "--charms",
+        nargs="+",
+        default=["k8s", "k8s-worker"],
+        help="List of charms used in k8s-operator",
     )
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
@@ -251,7 +285,7 @@ def main():
     group.add_argument("--after", nargs=1, default="1.32", help="Least supported track")
 
     args = parser.parse_args()
-    
+
     if args.supported_tracks:
         tracks = args.supported_tracks
     else:
