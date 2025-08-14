@@ -49,10 +49,6 @@ jobs:
       LPCREDS_B64: ${{ secrets.LP_CREDS }}
       ARGS: ''
     steps:
-      - name: Harden Runner
-        uses: step-security/harden-runner@v2
-        with:
-          egress-policy: audit
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
