@@ -1,0 +1,103 @@
+name: Nightly k8s-operator SQA builds 
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/k8s-operator-charm-release.yaml
+  schedule:
+    # Run 20 minutes after midnight
+    - cron: "20 0 * * *"
+  workflow_dispatch:
+    inputs:
+      tox_args:
+        description: "Extra arguments to pass to tox"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  run-tests:
+    name: Runs nightly SQA builds and gathers the results from previous runs
+    runs-on: [self-hosted, self-hosted-linux-amd64-jammy-private-endpoint-medium]
+    outputs:
+      has_results: ${{ steps.check_results.outputs.has_results }}
+    env:
+      CHARMCRAFT_AUTH: ${{ secrets.CHARMCRAFT_AUTH }}
+      SQA_API_KEY: ${{ secrets.SQA_API_KEY }}
+    steps:
+      - name: Checking out repo
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - run: pip install -r scripts/requirements.txt
+      - run: sudo snap install weebl-tools --channel latest/edge
+      - run: sudo apt-get install -y gettext
+      - name: Populate SQA credentials file 
+        run: |
+          sudo snap connect weebl-tools:home
+          cat templates/sqa-environments.yaml | envsubst > $HOME/environments.yaml
+          weebl-tools.sqalab environment create --yaml $HOME/environments.yaml
+      - name: Process charms
+        env:
+          SUPPORTED_TRACKS: ${{ vars.CHARM_RELEASE_SUPPORTED_TRACKS }}
+          TOX_ARGS: ${{ github.event.inputs.tox_args }}
+        id: process-charms
+        run: |
+          ARGS=""
+
+          if [ -n "$SUPPORTED_TRACKS" ]; then
+            ARGS="$ARGS --supported-tracks=$SUPPORTED_TRACKS"
+          fi
+
+          if [ -n "$TOX_ARGS" ]; then
+            ARGS="$ARGS $TOX_ARGS"
+          fi
+
+          tox -vv -e sqa_builds -- $ARGS
+      - name: Check if any results
+        id: check_results
+        run: |
+          if [ -s results.txt ]
+          then
+            echo "has_results=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: results.txt
+  
+  mattermost:
+    name: Notify Mattermost
+    needs: run-tests
+    if: needs.run-tests.outputs.has_results == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set current formatted date as env variable
+        run: echo "FORMATTED_DATE=$(date +'%d/%m/%Y')" >> $GITHUB_ENV
+      - uses: actions/download-artifact@v4
+        with:
+          name: results
+      - name: Read results
+        run: |
+          ESCAPED=$(sed ':a;N;$!ba;s/\n/\\n/g' results.txt)
+          echo "RESULTS_TEXT=$ESCAPED" >> $GITHUB_ENV
+      - name: Notify Mattermost
+        uses: mattermost/action-mattermost-notify@master
+        with:
+          MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_BOT_WEBHOOK_URL }}
+          PAYLOAD: |
+            {
+              "attachments": [
+                {
+                  "fallback": "k8s-operator nightly SQA builds results",
+                  "title": "k8s-operator nightly SQA builds results - ${{ env.FORMATTED_DATE }}",
+                  "text": "${{ env.RESULTS_TEXT }}"
+                }
+              ]
+            }      

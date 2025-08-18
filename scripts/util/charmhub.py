@@ -32,6 +32,9 @@ class Bundle:
     def set(self, charm, revision_matrix):
         self.data[charm] = revision_matrix
 
+    def get(self, charm):
+        return self.data[charm]
+
     def is_testable(self):
         if not len(self.data) or any(matrix is None for matrix in self.data.values()):
             return False
@@ -182,7 +185,11 @@ def find_revision(charm_name: str, channel: str, arch: str, base: str) -> int | 
         "context": [],
     }
     r = requests.post(url, headers=headers, json=data, timeout=TIMEOUT)
-    return r.json()["results"][0]["charm"].get("revision") if r.status_code == 200 else None
+    return (
+        r.json()["results"][0]["charm"].get("revision")
+        if r.status_code == 200
+        else None
+    )
 
 
 def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:

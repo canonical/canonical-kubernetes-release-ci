@@ -23,8 +23,10 @@ K8S_OPERATOR_PRODUCT_UUID = "432252b9-2041-4a9a-aece-37c2dbd54201"
 K8S_OPERATOR_TEST_PLAN_ID = "394fb5b6-1698-4226-bd3e-23b471ee1bd4"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
+
 class InvalidSQAInput(Exception):
     pass
+
 
 class SQAFailure(Exception):
     pass
@@ -39,10 +41,12 @@ def get_series(base: str) -> str | None:
 
     return base_series_map.get(base)
 
+
 class PriorityGenerator:
     """
     PriorityGenerator is an atomic counter to create atomic priorities for new TPIs we create.
     """
+
     def __init__(self, initial=0):
         self.value = initial
         self._lock = threading.Lock()
@@ -52,6 +56,19 @@ class PriorityGenerator:
         with self._lock:
             self.value += 1
             return self.value
+
+
+class Build(BaseModel):
+    uuid: UUID
+    status: str
+    result: str
+    created_at: datetime.datetime
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def parse_datetime(cls, v: str) -> datetime.datetime:
+        return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
+
 
 class Addon(BaseModel):
     id: str
@@ -74,6 +91,7 @@ class ProductVersion(BaseModel):
     revision: str
     product_name: str = Field(alias="product.name")
     product_uuid: str = Field(alias="product.uuid")
+
 
 class TestPlanInstanceStatus(StrEnum):
     IN_PROGRESS = "In Progress"
@@ -136,7 +154,7 @@ def _create_product_version(channel: str, base: str, version: str) -> ProductVer
 
     # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
     # the revision of the k8s charm as the identifier.
-    k8s_revision_match = re.search(r'k8s-(\d+)', version)
+    k8s_revision_match = re.search(r"k8s-(\d+)", version)
 
     if not k8s_revision_match:
         raise InvalidSQAInput("could not extract revision from version")
@@ -145,13 +163,17 @@ def _create_product_version(channel: str, base: str, version: str) -> ProductVer
 
     product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --revision {k8s_revision} --series {series}"
 
-    log.info("Creating product version for channel %s vision %s...\n %s", channel, version, product_version_cmd)
+    log.info(
+        "Creating product version for channel %s vision %s...\n %s",
+        channel,
+        version,
+        product_version_cmd,
+    )
 
     product_version_response = _weebl_run(*shlex.split(product_version_cmd))
 
     log.info(product_version_response)
     product_versions = parse_response_lists(ProductVersion, product_version_response)
-
 
     if not product_versions:
         raise SQAFailure("no product version returned from create command")
@@ -162,10 +184,16 @@ def _create_product_version(channel: str, base: str, version: str) -> ProductVer
     return product_versions[0]
 
 
-def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str, priority: int) -> TestPlanInstance:
+def _create_test_plan_instance(
+    product_version_uuid: str, addon_uuid: str, priority: int
+) -> TestPlanInstance:
     test_plan_instance_cmd = f"testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --addon_id {addon_uuid} --status 'In Progress' --base_priority {priority} --product_under_test {product_version_uuid}"
 
-    log.info("Creating test plan instance for product version %s...\n %s", product_version_uuid, test_plan_instance_cmd)
+    log.info(
+        "Creating test plan instance for product version %s...\n %s",
+        product_version_uuid,
+        test_plan_instance_cmd,
+    )
 
     test_plan_instance_response = _weebl_run(*shlex.split(test_plan_instance_cmd))
 
@@ -176,7 +204,6 @@ def _create_test_plan_instance(product_version_uuid: str, addon_uuid: str, prior
         json_str = json_str[: end_index + 1]
 
     test_plan_instances = parse_response_lists(TestPlanInstance, json_str)
-
 
     if not test_plan_instances:
         raise SQAFailure("no test plan instance returned from create command")
@@ -221,7 +248,6 @@ def current_test_plan_instance_status(
     if failed_test_plan_instances:
         return TestPlanInstanceStatus.FAILED
 
-
     return None
 
 
@@ -242,7 +268,9 @@ def _test_plan_instances(
 
     log.info(
         "Getting test plan instances for product version %s with status %s...\n %s",
-        productversion_uuid, status, test_plan_instances_cmd
+        productversion_uuid,
+        status,
+        test_plan_instances_cmd,
     )
 
     test_plan_instances_response = _weebl_run(*shlex.split(test_plan_instances_cmd))
@@ -267,7 +295,7 @@ def _product_versions(channel, base, version) -> list[ProductVersion]:
 
     # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
     # the revision of the k8s charm as the identifier.
-    k8s_revision_match = re.search(r'k8s-(\d+)', version)
+    k8s_revision_match = re.search(r"k8s-(\d+)", version)
 
     if not k8s_revision_match:
         raise InvalidSQAInput
@@ -276,7 +304,12 @@ def _product_versions(channel, base, version) -> list[ProductVersion]:
 
     product_versions_cmd = f"productversion list --channel {channel} --revision {k8s_revision} --series {series} --format json"
 
-    log.info("Getting product versions for channel %s version %s\n %s", channel, version, product_versions_cmd)
+    log.info(
+        "Getting product versions for channel %s version %s\n %s",
+        channel,
+        version,
+        product_versions_cmd,
+    )
 
     product_versions_response = _weebl_run(*shlex.split(product_versions_cmd))
 
@@ -289,9 +322,14 @@ def _product_versions(channel, base, version) -> list[ProductVersion]:
 def start_release_test(channel, base, arch, revisions, version, priority):
     if product_versions := _product_versions(channel, base, version):
         if len(product_versions) > 1:
-            raise SQAFailure(f"the ({channel, base, arch}) is supposed to have only one product version for version {version}")
+            raise SQAFailure(
+                f"the ({channel, base, arch}) is supposed to have only one product version for version {version}"
+            )
         product_version = product_versions[0]
-        log.info("using already defined product version %s to create TPI", product_version.uuid)
+        log.info(
+            "using already defined product version %s to create TPI",
+            product_version.uuid,
+        )
     else:
         product_version = _create_product_version(channel, base, version)
 
@@ -302,7 +340,7 @@ def start_release_test(channel, base, arch, revisions, version, priority):
         "arch": arch,
         "channel": channel,
         "branch": f"release-{track}",
-        **revisions
+        **revisions,
     }
 
     if m := re.match(r"^(\d+)\.(\d+)", track):
@@ -312,8 +350,11 @@ def start_release_test(channel, base, arch, revisions, version, priority):
 
     addon = _create_addon(version, variables)
 
-    test_plan_instance = _create_test_plan_instance(str(product_version.uuid), str(addon.uuid), priority)
+    test_plan_instance = _create_test_plan_instance(
+        str(product_version.uuid), str(addon.uuid), priority
+    )
     log.info(f"Started release test for {channel} with UUID: {test_plan_instance.uuid}")
+
 
 def _get_addon(name: str) -> Optional[Addon]:
     show_addon_cmd = f"addon show {name} --format json"
@@ -335,12 +376,12 @@ def _get_addon(name: str) -> Optional[Addon]:
         return None
 
     if len(addons) > 1:
-        raise SQAFailure("Too many addons from cshow command")
+        raise SQAFailure("Too many addons from show command")
 
     return addons[0]
 
-def _create_addon(version, variables) -> Addon:
 
+def _create_addon(version, variables) -> Addon:
     # return the addon if it's already defined before
     if addon := _get_addon(version):
         log.info(f"Using the previously defined addon for {version}")
@@ -357,7 +398,7 @@ def _create_addon(version, variables) -> Addon:
 
         env = Environment(
             loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"),
-            autoescape=select_autoescape()
+            autoescape=select_autoescape(),
         )
         template_files = env.list_templates(extensions="j2")
 
@@ -384,6 +425,63 @@ def _create_addon(version, variables) -> Addon:
 
     return addons[0]
 
+
+def create_build(variables) -> Build:
+    with tempfile.TemporaryDirectory(dir=Path.home(), delete=False) as temp_dir:
+        # the name of the addon dir must be 'addon'
+        addon_dir = Path(temp_dir) / "addon"
+        config_dir = addon_dir / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        log.info(f"addon directory created at: {addon_dir}")
+
+        env = Environment(
+            loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"),
+            autoescape=select_autoescape(),
+        )
+        template_files = env.list_templates(extensions="j2")
+
+        for template_name in template_files:
+            template = env.get_template(template_name)
+            rendered = template.render(variables)
+
+            output_filename = Path(template_name).stem
+            output_path = config_dir / output_filename
+            output_path.write_text(rendered)
+
+        cmd = f"build add --deployment-branch solutionsqa/fkb/sku/master-canonicalk8s-jammy-cos --addon {addon_dir} --format json"
+        resp = _weebl_run(*shlex.split(cmd))
+
+    log.info(resp)
+    builds = parse_response_lists(Build, resp)
+
+    if not builds:
+        raise SQAFailure("no builds returned from create command")
+
+    if len(builds) > 1:
+        raise SQAFailure("Too many builds from create command")
+
+    return builds[0]
+
+
+def get_build(uuid: str) -> Build:
+    """Get the build with the given UUID."""
+    cmd = f"build show {uuid} --format json"
+
+    resp = _weebl_run(*shlex.split(cmd))
+
+    log.info(resp)
+    builds = parse_response_lists(Build, resp)
+
+    if not builds:
+        raise SQAFailure("no build returned from show command")
+
+    if len(builds) > 1:
+        raise SQAFailure("Too many builds from show command")
+
+    return builds[0]
+
+
 def _weebl_run(*args, **kwds) -> str:
     kwds = {"text": True, "check": True, "capture_output": True, **kwds}
     try:
@@ -391,6 +489,7 @@ def _weebl_run(*args, **kwds) -> str:
     except subprocess.CalledProcessError as e:
         raise SQAFailure(f"{args[0]} failed: {e.stderr}")
     return response.stdout
+
 
 def parse_response_lists(model, response_str: str) -> list:
     adapter = TypeAdapter(list[model])

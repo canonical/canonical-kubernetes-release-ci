@@ -2,8 +2,12 @@ import json
 from unittest.mock import patch
 
 import pytest
-from util.k8s import (get_k8s_tags, get_latest_releases_by_minor,
-                      get_latest_stable, is_stable_release)
+from util.k8s import (
+    get_k8s_tags,
+    get_latest_releases_by_minor,
+    get_latest_stable,
+    is_stable_release,
+)
 
 SAMPLE_TAGS = [
     {"name": "v1.33.0-alpha.0"},

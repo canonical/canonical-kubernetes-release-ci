@@ -110,8 +110,12 @@ class ProcessState(StrEnum):
     PROCESS_CI_FAILED = auto()
     PROCESS_UNCHANGED = auto()
 
+
 def ensure_track_state(
-    channel, bundle: charmhub.Bundle, dry_run: bool, priority_generator: sqa.PriorityGenerator
+    channel,
+    bundle: charmhub.Bundle,
+    dry_run: bool,
+    priority_generator: sqa.PriorityGenerator,
 ) -> TrackState:
     track_state = TrackState()
     for arch in bundle.get_archs():
@@ -129,7 +133,9 @@ def ensure_track_state(
             if not version:
                 continue
             priority = priority_generator.next_priority
-            log.info(f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})")
+            log.info(
+                f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})"
+            )
             current_test_plan_instance_status = sqa.current_test_plan_instance_status(
                 channel, base, version
             )
@@ -141,7 +147,9 @@ def ensure_track_state(
                 log.info(f"No TPI found. Creating a new TPI for {revisions} with priority {priority}")
 
                 if not dry_run:
-                    sqa.start_release_test(channel, base, arch, revisions, version, priority)
+                    sqa.start_release_test(
+                        channel, base, arch, revisions, version, priority
+                    )
 
                 track_state.set_state(version, sqa.TestPlanInstanceStatus.IN_PROGRESS)
                 continue
@@ -229,7 +237,9 @@ def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -
         log.exception(f"process track {track} failed because of the Charmcraft")
         return ProcessState.PROCESS_CI_FAILED
     except sqa.InvalidSQAInput:
-        log.exception(f"process track {track} failed because of revision could not be extracted from version")
+        log.exception(
+            f"process track {track} failed because of revision could not be extracted from version"
+        )
         return ProcessState.PROCESS_CI_FAILED
 
 
