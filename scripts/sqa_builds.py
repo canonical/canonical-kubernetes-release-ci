@@ -50,17 +50,22 @@ def get_track_results(state_file: str) -> Dict[str, str]:
         log.info("No state found, returning empty results.")
         return results
 
-    for revision, build_uuid in state.items():
+    for revision, build_details in state.items():
         try:
-            build = sqa.get_build(build_uuid)
+            build = sqa.get_build(build_details.get("uuid"))
             if not build:
-                log.warning(f"Build with UUID {build_uuid} not found.")
+                log.warning(f"Build with UUID {build_details.get("uuid")} not found.")
                 continue
-            results[revision] = (
-                f"status: {build.status} result: {build.result} uuid: {build.uuid}"
-            )
+            results[revision] = {
+                "status": build.status,
+                "result": build.result,
+                "uuid": str(build.uuid),
+                "arch": build_details.get("arch"),
+                "base": build_details.get("base"),
+                "channel": build_details.get("channel"),
+            }
         except sqa.SQAFailure as e:
-            log.error(f"Failed to get build {build_uuid}: {e}")
+            log.error(f"Failed to get build {build_details.get("uuid")}: {e}")
 
     return results
 
@@ -138,7 +143,12 @@ def create_one_build(
     log.info(f"Creating SQA build for {channel} for revisions: {revisions}")
     if not dry_run:
         build = sqa.create_build(variables)
-        state[revisions.get("k8s_revision")] = str(build.uuid)
+        state[revisions.get("k8s_revision")] = {
+            "uuid": str(build.uuid),
+            "base": base_in_test,
+            "arch": arch_in_test,
+            "channel": channel,
+        }
         with open(state_file, "w") as f:
             json.dump(state, f, indent=4)
 

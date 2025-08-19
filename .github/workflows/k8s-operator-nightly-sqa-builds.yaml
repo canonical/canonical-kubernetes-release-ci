@@ -37,7 +37,7 @@ jobs:
       - name: Cache state
         uses: actions/cache@v3
         with:
-          path: state.json
+          path: sqa-state.json
           key: state-cache-${{ github.sha }}
           restore-keys: |
             state-cache-
@@ -65,7 +65,7 @@ jobs:
             ARGS="$ARGS $TOX_ARGS"
           fi
 
-          tox -vv -e sqa_builds -- $ARGS --state-file state.json
+          tox -vv -e sqa_builds -- $ARGS --state-file sqa-state.json
       - name: Check if any results
         id: check_results
         run: |
