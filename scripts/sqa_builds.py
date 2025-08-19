@@ -39,11 +39,11 @@ def get_state(state_file: str):
                 return data
 
 
-def get_track_results(state_file: str) -> Dict[str, str]:
+def get_track_results(state_file: str) -> Dict[str, dict]:
     """Get the results of the builds for a specific track."""
 
     log.info("Getting results from previous test runs...")
-    results: dict[str, str] = {}
+    results: dict[str, dict] = {}
 
     state = get_state(state_file)
     if not state:
