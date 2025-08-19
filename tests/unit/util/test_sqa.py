@@ -76,8 +76,9 @@ def test_create_build(mock_weebl_run):
         mock_builds = file.read()
 
     mock_weebl_run.return_value = mock_builds
-    addon = create_build(
+    build = create_build(
         {
+            "app": lambda x: x,
             "base": "22.04",
             "arch": "amd64",
             "channel": "1.32/candidate",
@@ -86,7 +87,7 @@ def test_create_build(mock_weebl_run):
         }
     )
 
-    assert addon.uuid == UUID("b6d399db-f188-4de0-8870-1756f2de2e2c")
+    assert build.uuid == UUID("22aa4c33-6d6c-457b-a301-3cb184c0787d")
 
 
 def test_test_plan_instances(mock_weebl_run):
