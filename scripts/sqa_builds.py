@@ -43,7 +43,7 @@ def get_track_results(state_file: str) -> Dict[str, str]:
     """Get the results of the builds for a specific track."""
 
     log.info("Getting results from previous test runs...")
-    results = {}
+    results: dict[str, str] = {}
 
     state = get_state(state_file)
     if not state:
@@ -66,7 +66,7 @@ def get_track_results(state_file: str) -> Dict[str, str]:
 
 
 def create_one_build(
-    channel: str, state_file: json, arch: str, base: str, dry_run: bool
+    channel: str, state_file: str, arch: str, base: str, dry_run: bool
 ):
     """Process the given channel based on its current state."""
 
@@ -116,7 +116,7 @@ def create_one_build(
     log.info(
         f"Found {len(testable_revisions)} testable revision(s) for channel {channel}: {testable_revisions}"
     )
-    (base_in_test, arch_in_test) = random.choice(testable_revisions)
+    (base_in_test, arch_in_test) = random.choice(testable_revisions)        #nosec
     log.info(f"Selected base {base_in_test} and arch {arch_in_test} for testing.")
 
     revisions = k8s_operator_bundle.get_revisions(arch_in_test, base_in_test)

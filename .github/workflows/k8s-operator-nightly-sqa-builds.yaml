@@ -3,7 +3,7 @@ name: Nightly k8s-operator SQA builds
 on:
   pull_request:
     paths:
-      - .github/workflows/k8s-operator-charm-release.yaml
+      - .github/workflows/k8s-operator-nightly-sqa-builds.yaml
   schedule:
     # Run 20 minutes after midnight
     - cron: "20 0 * * *"
