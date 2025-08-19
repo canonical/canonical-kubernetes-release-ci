@@ -4,7 +4,7 @@ production:
     apikey: $SQA_API_KEY
     token: $SQA_API_KEY
     env_name: production
-    weebl_url: http://10.131.231.53:8080
+    weebl_url: http://10.131.231.47:8080
     jenkins_url: http://10.131.231.80:8080
     smtp_from: noreply@canonical.com
     smtp_pass: figandleaves
