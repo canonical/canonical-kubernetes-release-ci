@@ -64,6 +64,9 @@ class Build(BaseModel):
     result: str
     created_at: datetime.datetime
     addon_id: str
+    arch: Optional[str] = None
+    base: Optional[str] = None
+    channel: Optional[str] = None
 
     @field_validator("created_at", mode="before")
     @classmethod

@@ -9,69 +9,51 @@ import argparse
 import logging
 import random
 import re
-from typing import Dict
 
+from pydantic import BaseModel
 from requests.exceptions import HTTPError
 from util import charmhub, k8s, sqa
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
+class State(BaseModel):
+    builds: dict[str, sqa.Build]
 
-def get_state() -> dict[str, dict]:
-    pattern = re.compile(r"^(\d+)-([^-]+)-([^-]+)-([^-]+)-([^-]+)$")
+def get_state() -> State:
+    pattern = re.compile(r"^k8s-build-(\d+)-([^-]+)-([^-]+)-([^-]+)-([^-]+)$")
 
-    state = {}
+    builds: dict[str, sqa.Build] = {}
     for status in ["Queued", "Running", "Finished"]:
-        builds = sqa.list_builds(status=status)
-        for build in builds:
-            # only the k8s-operator builds from cdkbot pass this check
+        for build in sqa.list_builds(status=status):
             match = pattern.match(build.addon_id)
             if not match:
                 continue
             revision, arch, base, track, risk = match.groups()
-            state[revision] = {
-                "uuid": str(build.uuid),
-                "arch": arch,
-                "base": base,
-                "channel": f"{track}/{risk}",
-            }
+            build.arch = arch
+            build.base = base
+            build.channel = f"{track}/{risk}"
+            builds[revision] = build
+    return State(builds=builds)
 
-    return state
-
-
-def get_results(state: dict) -> Dict[str, dict]:
+def get_results(state: State) -> str:
     """Get the results of the builds for a specific track."""
 
     log.info("Getting results from previous test runs...")
-    results: dict[str, dict] = {}
+    results: list[str] = []
 
     if not state:
         log.info("No state found, returning empty results.")
-        return results
+        return ""
 
-    for revision, build_details in state.items():
-        try:
-            build = sqa.get_build(build_details.get("uuid"))
-            if not build:
-                log.warning(f"Build with UUID {build_details.get("uuid")} not found.")
-                continue
-            results[revision] = {
-                "status": build.status,
-                "result": build.result,
-                "uuid": str(build.uuid),
-                "arch": build_details.get("arch"),
-                "base": build_details.get("base"),
-                "channel": build_details.get("channel")
-            }
-        except sqa.SQAFailure as e:
-            log.error(f"Failed to get build {build_details.get("uuid")}: {e}")
+    for revision, details in state.builds.items():
+        results.append(f"Revision: {revision}, Status: {details.status}, Result: {details.result}, UUID: {details.uuid}, Arch: {details.arch}, Base: {details.base}, Channel: {details.channel}")
 
-    return results
+    return "\n".join(results)
 
 
 def create_one_build(
-    state: dict[str, dict], track: str, risk_level: str, arch: str, base: str, dry_run: bool
+    state: State, track: str, risk_level: str, arch: str, base: str, dry_run: bool
 ):
     """Process the given channel based on its current state."""
     log.info(f"Current state: {state}")
@@ -107,7 +89,7 @@ def create_one_build(
                 continue
 
             revision = k8s_revision_matrix.get(matrix_arch, matrix_base)
-            if revision and not state.get(str(revision)):
+            if revision and not state.builds.get(str(revision)):
                 testable_revisions.append((matrix_base, matrix_arch))
 
     if not testable_revisions:
@@ -123,7 +105,7 @@ def create_one_build(
     log.info(f"Selected base {base_in_test} and arch {arch_in_test} for testing.")
 
     revisions = k8s_operator_bundle.get_revisions(arch_in_test, base_in_test)
-    version = f"{revisions.get("k8s_revision")}-{arch_in_test}-{base_in_test}-{track}-{risk_level}"
+    version = f"k8s-build-{revisions.get("k8s_revision")}-{arch_in_test}-{base_in_test}-{track}-{risk_level}"
     variables = {
         "app": lambda name: name,
         "base": base_in_test,
@@ -141,12 +123,10 @@ def create_one_build(
     log.info(f"Creating SQA build for {channel} for revisions: {revisions}")
     if not dry_run:
         build = sqa.create_build(version, variables)
-        state[revisions.get("k8s_revision")] = {
-            "uuid": str(build.uuid),
-            "base": base_in_test,
-            "arch": arch_in_test,
-            "channel": channel
-        }
+        build.base = base_in_test
+        build.arch = arch_in_test
+        build.channel = channel
+        state.builds[revisions.get("k8s_revision")] = build
 
 
 def main():
@@ -185,7 +165,6 @@ def main():
 
     state = get_state()
 
-    results = {}
     for track in tracks:
         create_one_build(
             state,
@@ -198,10 +177,7 @@ def main():
         
     results = get_results(state)
     with open("results.txt", "w") as f:
-        for revision, details in results.items():
-            f.write(
-                f"Revision: {revision}, Status: {details.get("status")}, Result: {details.get("result")}, UUID: {details.get("uuid")}, Arch: {details.get("arch")}, Base: {details.get("base")}, Channel: {details.get("channel")}\n"
-            )
+        f.write(results)
 
 
 if __name__ == "__main__":
