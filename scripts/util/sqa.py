@@ -63,6 +63,7 @@ class Build(BaseModel):
     status: str
     result: str
     created_at: datetime.datetime
+    addon_id: str
 
     @field_validator("created_at", mode="before")
     @classmethod
@@ -426,31 +427,13 @@ def _create_addon(version, variables) -> Addon:
     return addons[0]
 
 
-def create_build(variables) -> Build:
-    with tempfile.TemporaryDirectory(dir=Path.home(), delete=False) as temp_dir:
-        # the name of the addon dir must be 'addon'
-        addon_dir = Path(temp_dir) / "addon"
-        config_dir = addon_dir / "config"
-        config_dir.mkdir(parents=True, exist_ok=True)
-
-        log.info(f"addon directory created at: {addon_dir}")
-
-        env = Environment(
-            loader=FileSystemLoader("scripts/templates/canonical_k8s_sqa_addon"),
-            autoescape=select_autoescape(),
-        )
-        template_files = env.list_templates(extensions="j2")
-
-        for template_name in template_files:
-            template = env.get_template(template_name)
-            rendered = template.render(variables)
-
-            output_filename = Path(template_name).stem
-            output_path = config_dir / output_filename
-            output_path.write_text(rendered)
-
-        cmd = f"build add --deployment-branch solutionsqa/fkb/sku/master-canonicalk8s-jammy-cos --addon {addon_dir} --format json"
-        resp = _weebl_run(*shlex.split(cmd))
+def create_build(version, variables) -> Build:
+    """"Create a build for the given variables."""
+    addon = _create_addon(version, variables)
+    
+    # wokeignore:rule=master
+    cmd = f"build add --deployment-branch solutionsqa/fkb/sku/master-canonicalk8s-jammy-cos --existing_addon {addon.uuid} --format json"
+    resp = _weebl_run(*shlex.split(cmd))
 
     log.info(resp)
     builds = parse_response_lists(Build, resp)
@@ -462,6 +445,21 @@ def create_build(variables) -> Build:
         raise SQAFailure("Too many builds from create command")
 
     return builds[0]
+
+
+def list_builds(status: str) -> list[Build]:
+    """Get the list of all builds."""
+    cmd = f"build list --number 0 --status {status} --format json"
+
+    resp = _weebl_run(*shlex.split(cmd))
+
+    log.info(resp)
+    builds = parse_response_lists(Build, resp)
+
+    if not builds:
+        raise SQAFailure("no build returned from show command")
+    
+    return builds
 
 
 def get_build(uuid: str) -> Build:

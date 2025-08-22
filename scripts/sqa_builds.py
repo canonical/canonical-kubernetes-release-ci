@@ -6,9 +6,7 @@ the team about possible failures on charms before releasing them to candidate.
 """
 
 import argparse
-import json
 import logging
-import os
 import random
 import re
 from typing import Dict
@@ -20,32 +18,34 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 
-def get_state(state_file: str):
-    if not state_file or not os.path.exists(state_file):
-        log.info("no state file found.")
-        return {}
-    else:
-        if os.path.getsize(state_file) == 0:
-            log.info("state file is empty.")
-            return {}
-        else:
-            with open(state_file, "r") as f:
-                try:
-                    data = json.load(f)
-                except json.JSONDecodeError:
-                    print("File contains invalid JSON, defaulting to empty.")
-                    data = {}
+def get_state() -> dict[str, dict]:
+    pattern = re.compile(r"^(\d+)-([^-]+)-([^-]+)-([^-]+)-([^-]+)$")
 
-                return data
+    state = {}
+    for status in ["Queued", "Running", "Finished"]:
+        builds = sqa.list_builds(status=status)
+        for build in builds:
+            # only the k8s-operator builds from cdkbot pass this check
+            match = pattern.match(build.addon_id)
+            if not match:
+                continue
+            revision, arch, base, track, risk = match.groups()
+            state[revision] = {
+                "uuid": str(build.uuid),
+                "arch": arch,
+                "base": base,
+                "channel": f"{track}/{risk}",
+            }
+
+    return state
 
 
-def get_track_results(state_file: str) -> Dict[str, dict]:
+def get_results(state: dict) -> Dict[str, dict]:
     """Get the results of the builds for a specific track."""
 
     log.info("Getting results from previous test runs...")
     results: dict[str, dict] = {}
 
-    state = get_state(state_file)
     if not state:
         log.info("No state found, returning empty results.")
         return results
@@ -62,7 +62,7 @@ def get_track_results(state_file: str) -> Dict[str, dict]:
                 "uuid": str(build.uuid),
                 "arch": build_details.get("arch"),
                 "base": build_details.get("base"),
-                "channel": build_details.get("channel"),
+                "channel": build_details.get("channel")
             }
         except sqa.SQAFailure as e:
             log.error(f"Failed to get build {build_details.get("uuid")}: {e}")
@@ -71,13 +71,11 @@ def get_track_results(state_file: str) -> Dict[str, dict]:
 
 
 def create_one_build(
-    channel: str, state_file: str, arch: str, base: str, dry_run: bool
+    state: dict[str, dict], track: str, risk_level: str, arch: str, base: str, dry_run: bool
 ):
     """Process the given channel based on its current state."""
-
-    state = get_state(state_file)
     log.info(f"Current state: {state}")
-
+    channel = f"{track}/{risk_level}"
     k8s_operator_bundle = charmhub.Bundle("k8s-operator")
     for charm in ["k8s", "k8s-worker"]:
         log.info(f"Getting revisions for {charm} charm on channel {channel}")
@@ -125,7 +123,7 @@ def create_one_build(
     log.info(f"Selected base {base_in_test} and arch {arch_in_test} for testing.")
 
     revisions = k8s_operator_bundle.get_revisions(arch_in_test, base_in_test)
-    track = channel.split("/")[0]
+    version = f"{revisions.get("k8s_revision")}-{arch_in_test}-{base_in_test}-{track}-{risk_level}"
     variables = {
         "app": lambda name: name,
         "base": base_in_test,
@@ -142,15 +140,13 @@ def create_one_build(
 
     log.info(f"Creating SQA build for {channel} for revisions: {revisions}")
     if not dry_run:
-        build = sqa.create_build(variables)
+        build = sqa.create_build(version, variables)
         state[revisions.get("k8s_revision")] = {
             "uuid": str(build.uuid),
             "base": base_in_test,
             "arch": arch_in_test,
-            "channel": channel,
+            "channel": channel
         }
-        with open(state_file, "w") as f:
-            json.dump(state, f, indent=4)
 
 
 def main():
@@ -161,11 +157,6 @@ def main():
         "--arch", default="amd64", help="Architecture to run the builds on"
     )
     parser.add_argument("--base", help="Base to run the builds on")
-    parser.add_argument(
-        "--state-file",
-        default="sqa_builds_state.json",
-        help="File to store the state of the builds",
-    )
     parser.add_argument(
         "--risk-level", default="beta", help="Risk level to run the builds for"
     )
@@ -192,24 +183,25 @@ def main():
 
     log.info(f"Starting the test build process for: {tracks}")
 
+    state = get_state()
+
     results = {}
     for track in tracks:
         create_one_build(
-            f"{track}/{args.risk_level}",
-            args.state_file,
+            state,
+            track,
+            args.risk_level,
             args.arch,
             args.base,
             args.dry_run,
         )
-
-        track_results = get_track_results(
-            args.state_file,
-        )
-        results[f"{track}"] = str(track_results)
-
+        
+    results = get_results(state)
     with open("results.txt", "w") as f:
-        for key, value in results.items():
-            f.write(f"{key}={value}\n")
+        for revision, details in results.items():
+            f.write(
+                f"Revision: {revision}, Status: {details.get("status")}, Result: {details.get("result")}, UUID: {details.get("uuid")}, Arch: {details.get("arch")}, Base: {details.get("base")}, Channel: {details.get("channel")}\n"
+            )
 
 
 if __name__ == "__main__":
