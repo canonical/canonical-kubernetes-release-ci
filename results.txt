@@ -1,6 +1,0 @@
-Revision: 1257, Status: Finished, Result: 2, UUID: 27cf81de-2e96-4629-9561-ce104090a1c6, Arch: amd64, Base: 20.04, Channel: 1.32/beta
-Revision: 1259, Status: Finished, Result: 2, UUID: 75ee198b-2808-4b24-87b2-791ebbfc40e5, Arch: amd64, Base: 22.04, Channel: 1.32/beta
-Revision: 1261, Status: Finished, Result: 2, UUID: a766cb17-6dc8-4b34-91de-22642013a76e, Arch: amd64, Base: 24.04, Channel: 1.32/beta
-Revision: 1276, Status: Finished, Result: 2, UUID: 619c113b-775f-4fb1-b9b9-654e9562bc1d, Arch: amd64, Base: 24.04, Channel: 1.32/beta
-Revision: 1274, Status: Finished, Result: 2, UUID: b54dbb2d-0b1d-4bac-b41c-8ce0f9f6bc0c, Arch: amd64, Base: 22.04, Channel: 1.32/beta
-Revision: 1272, Status: Finished, Result: 2, UUID: 9ea82599-5ade-4e0c-b7ad-99c281dc1879, Arch: amd64, Base: 20.04, Channel: 1.32/beta
