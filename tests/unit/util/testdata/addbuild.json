@@ -1,0 +1,13 @@
+[
+  {
+    "created_at": "2025-08-18T10:24:25.516235Z",
+    "deployment_branch": "solutionsqa/fkb/sku/main-canonicalk8s-jammy-cos",
+    "silo": "tor3-sqa-dedicated_maas-dh1_j2",
+    "status": "Queued",
+    "result": "None",
+    "user": "cdkbot",
+    "uuid": "22aa4c33-6d6c-457b-a301-3cb184c0787d",
+    "addon_id": "None",
+    "fce_container_image": "ubuntu:jammy"
+  }
+]

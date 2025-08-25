@@ -26,6 +26,7 @@ def mock_charmhub():
     with patch("charm_release.charmhub") as mock:
         yield mock
 
+
 def get_same_revision_matrix_side_effect(charm_name, channel):
     revision_matrix = charmhub.RevisionMatrix()
     if channel == "1.32/candidate":
@@ -35,6 +36,7 @@ def get_same_revision_matrix_side_effect(charm_name, channel):
 
     return revision_matrix
 
+
 def get_revision_matrix_side_effect(charm_name, channel):
     revision_matrix = charmhub.RevisionMatrix()
     if channel == "1.32/candidate":
@@ -43,6 +45,7 @@ def get_revision_matrix_side_effect(charm_name, channel):
         revision_matrix.set("amd64", "22.04", "548")
 
     return revision_matrix
+
 
 def test_no_release_run(mock_sqa, mock_charmhub):
     """If there is no release run exists for the given track, a new one should be started."""

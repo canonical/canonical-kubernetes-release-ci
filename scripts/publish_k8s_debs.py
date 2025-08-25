@@ -123,8 +123,8 @@ class K8sDebManager:
     @property
     def _deb_version(self) -> str:
         v = f"{self._k8s_version.major}.{self._k8s_version.minor}.{self._k8s_version.micro}"
-        if self._k8s_version.is_prerelease and len(self._k8s_version.pre) > 2:  #type: ignore
-            pre = f"{PRE_TO_RISK.get(self._k8s_version.pre[0], self._k8s_version.pre[0])}.{self._k8s_version.pre[1]}"  #type: ignore
+        if self._k8s_version.is_prerelease and len(self._k8s_version.pre) > 2:  # type: ignore
+            pre = f"{PRE_TO_RISK.get(self._k8s_version.pre[0], self._k8s_version.pre[0])}.{self._k8s_version.pre[1]}"  # type: ignore
             v = f"{v}-{pre}"
         return f"{v}-{self._version_postfix}"
 
@@ -424,7 +424,12 @@ def main():
     )
     args = setup_arguments(arg_parser)
 
-    LOG.info("Building %s from tag %s with version postfix %s", args.component, args.tag, args.version_postfix)
+    LOG.info(
+        "Building %s from tag %s with version postfix %s",
+        args.component,
+        args.tag,
+        args.version_postfix,
+    )
 
     deb_manager = K8sDebManager(
         repo_tag=args.tag,
