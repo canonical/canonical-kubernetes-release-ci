@@ -50,6 +50,10 @@ jobs:
         run: |
           ARGS=""
 
+          if [ ${{ github.event_name }} = "pull_request" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
           if [ -n "$SUPPORTED_TRACKS" ]; then
             ARGS="$ARGS --supported-tracks=$SUPPORTED_TRACKS"
           fi
