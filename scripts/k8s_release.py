@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Promote revisions of the Canonical Kubernetes snap through the risk levels of each track."""
 
 import argparse
 import logging
@@ -16,6 +17,7 @@ def get_outstanding_prereleases(as_git_branch: bool = False) -> List[str]:
 
     Args:
         as_git_branch: If True, return the git branch name for the pre-release.
+
     """
     latest_release = k8s.get_latest_releases_by_minor()
     prereleases = []

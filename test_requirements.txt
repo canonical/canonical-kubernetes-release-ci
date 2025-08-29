@@ -1,3 +1,0 @@
-freezegun
-pytest
-types-requests

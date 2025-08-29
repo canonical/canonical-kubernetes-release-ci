@@ -1,4 +1,4 @@
-name: Nightly k8s-operator SQA builds 
+name: Nightly k8s-operator SQA builds
 
 on:
   pull_request:
@@ -31,13 +31,12 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Python
         uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-      - run: pip install -r scripts/requirements.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - run: uv tool install tox --with tox-uv
       - run: sudo snap install weebl-tools --channel latest/stable
       - run: sudo apt-get install -y gettext
-      - name: Populate SQA credentials file 
+      - name: Populate SQA credentials file
         run: |
           sudo snap connect weebl-tools:home
           cat templates/sqa-environments.yaml | envsubst > $HOME/environments.yaml
@@ -50,6 +49,10 @@ jobs:
         run: |
           ARGS=""
 
+          if [ ${{ github.event_name }} = "pull_request" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+
           if [ -n "$SUPPORTED_TRACKS" ]; then
             ARGS="$ARGS --supported-tracks=$SUPPORTED_TRACKS"
           fi
@@ -58,7 +61,7 @@ jobs:
             ARGS="$ARGS $TOX_ARGS"
           fi
 
-          tox -vv -e sqa_builds -- $ARGS
+          tox -vv -e runner -- scripts/sqa_builds.py $ARGS
       - name: Check if any results
         id: check_results
         run: |
@@ -99,4 +102,4 @@ jobs:
                   "text": "${{ env.RESULTS_TEXT }}"
                 }
               ]
-            }      
+            }

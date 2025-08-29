@@ -1,3 +1,5 @@
+"""Utility functions for interacting with the Snap Store API."""
+
 import json
 import logging
 

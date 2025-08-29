@@ -1,3 +1,5 @@
+"""Utility functions for interacting with Kubernetes release tags."""
+
 import json
 import re
 from typing import Dict, List
@@ -23,6 +25,7 @@ def is_stable_release(release: str) -> bool:
 
     Returns:
         True if the release is stable, False otherwise.
+
     """
     return "-" not in release
 
@@ -35,6 +38,7 @@ def get_k8s_tags() -> List[str]:
 
     Raises:
         ValueError: If no tags are retrieved.
+
     """
     response = _url_get(K8S_TAGS_URL)
     tags_json = json.loads(response)
@@ -53,6 +57,7 @@ def get_latest_stable() -> str:
 
     Raises:
         ValueError: If no stable release is found.
+
     """
     for tag in get_k8s_tags():
         if is_stable_release(tag):
@@ -66,6 +71,7 @@ def get_latest_releases_by_minor() -> Dict[str, str]:
     Returns:
         A dictionary mapping minor versions (e.g. '1.30') to the
         latest (pre-)release tag (e.g. 'v1.30.1').
+
     """
     latest_by_minor: Dict[str, str] = {}
     version_regex = re.compile(r"^v?(\d+)\.(\d+)\..+")
@@ -83,8 +89,8 @@ def get_latest_releases_by_minor() -> Dict[str, str]:
 
 
 def get_all_releases_after(release) -> set[str]:
-    """
-    Get all releases after the input release.
+    """Get all releases after the input release.
+
     If the input release is invalid, the output will be empty.
     """
     releases: set[str] = set()

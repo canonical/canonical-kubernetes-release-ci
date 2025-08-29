@@ -1,5 +1,4 @@
-"""
-Script to automate the k8s-operator charms release process.
+"""Script to automate the k8s-operator charms release process.
 
 The implementation works as a state machine that queries the current state of each track
 and then decides what to do next.The script is designed to be idempotent, meaning that it
@@ -29,10 +28,13 @@ bundles.
 for each track:
     for each charm:
         get data for current track state:
-        - extract all the revisions corresponding to each (arch, base) published on channel=<track>/candidate
-        - extract all the revisions corresponding to each (arch, base) published on stable_channel=<track>/stable
+        - extract all the revisions corresponding to each (arch, base)
+          published on channel=<track>/candidate
+        - extract all the revisions corresponding to each (arch, base)
+          published on stable_channel=<track>/stable
 
-    skip if all the charms have their revisions on <track>/candidate already published in <track>/stable
+    skip if all the charms have their revisions on <track>/candidate
+        already published in <track>/stable
 
     for each (arch, base):
         extract the corresponding revision of each charm on channel=<track>/candidate
@@ -73,37 +75,48 @@ log = logging.getLogger(__name__)
 
 
 class TrackState:
+    """Class to represent the state of a track."""
+
     def __init__(self):
+        """Initialize the track state with an empty state map."""
         self._state_map: Dict[str, sqa.TestPlanInstanceStatus] = {}
 
     def set_state(self, version, state: sqa.TestPlanInstanceStatus):
+        """Set the state of a track for a given version."""
         self._state_map[version] = state
 
     def __str__(self):
+        """Return a string representation of the track state."""
         return str([(key, str(value)) for key, value in self._state_map.items()])
 
     @property
     def empty(self) -> bool:
+        """Check if the track state is empty."""
         return not self._state_map
 
     @property
     def failed(self) -> bool:
+        """Check if any of the revisions are failed."""
         return any(s.failed for s in self._state_map.values())
 
     @property
     def succeeded(self) -> bool:
+        """Check if all revisions are succeeded."""
         if self.empty:
             return False
         return all(s.succeeded for s in self._state_map.values())
 
     @property
     def in_progress(self) -> bool:
+        """Check if any of the revisions are still in progress."""
         if self.failed:
             return False
         return any(s.in_progress for s in self._state_map.values())
 
 
 class ProcessState(StrEnum):
+    """Enum representing the state of the process for a track."""
+
     PROCESS_SUCCESS = auto()
     PROCESS_IN_PROGRESS = auto()
     PROCESS_FAILED = auto()
@@ -133,9 +146,7 @@ def ensure_track_state(
             if not version:
                 continue
             priority = priority_generator.next_priority
-            log.info(
-                f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})"
-            )
+            log.info(f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})")
             current_test_plan_instance_status = sqa.current_test_plan_instance_status(
                 channel, base, version
             )
@@ -144,12 +155,12 @@ def ensure_track_state(
                 # We are creating TPIs with different priorities to avoid overloading the
                 # SQA platform
 
-                log.info(f"No TPI found. Creating a new TPI for {revisions} with priority {priority}")
+                log.info(
+                    f"No TPI found. Creating a new TPI for {revisions} with priority {priority}"
+                )
 
                 if not dry_run:
-                    sqa.start_release_test(
-                        channel, base, arch, revisions, version, priority
-                    )
+                    sqa.start_release_test(channel, base, arch, revisions, version, priority)
 
                 track_state.set_state(version, sqa.TestPlanInstanceStatus.IN_PROGRESS)
                 continue
@@ -161,7 +172,6 @@ def ensure_track_state(
 
 def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -> ProcessState:
     """Process the given track based on its current state."""
-
     dry_run: bool = args.dry_run
     bundle_charms: list[str] = args.charms
     from_channel = f"{track}/{args.from_risk}"
@@ -173,7 +183,9 @@ def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -
         try:
             from_revision_matrix = charmhub.get_revision_matrix(charm, from_channel)
         except HTTPError:
-            log.exception(f"failed to get revision matrix for charm {charm} channel={from_channel}")
+            log.exception(
+                f"failed to get revision matrix for charm {charm} channel={from_channel}"
+            )
             return ProcessState.PROCESS_CI_FAILED
         log.info("Channel %s revisions:\n %s", from_channel, from_revision_matrix)
 
@@ -207,9 +219,7 @@ def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -
         return ProcessState.PROCESS_UNCHANGED
 
     try:
-        state = ensure_track_state(
-            from_channel, k8s_operator_bundle, dry_run, priority_generator
-        )
+        state = ensure_track_state(from_channel, k8s_operator_bundle, dry_run, priority_generator)
         log.info(f"Track {track} is in state: {state}")
 
         if state.empty:
@@ -230,10 +240,10 @@ def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -
         else:
             log.info(f"Unknown state for {track}. Skipping...")
             return ProcessState.PROCESS_CI_FAILED
-    except sqa.SQAFailure:
+    except sqa.SQAFailureError:
         log.exception(f"process track {track} failed because of the SQA")
         return ProcessState.PROCESS_CI_FAILED
-    except charmhub.CharmcraftFailure:
+    except charmhub.CharmcraftError:
         log.exception(f"process track {track} failed because of the Charmcraft")
         return ProcessState.PROCESS_CI_FAILED
     except sqa.InvalidSQAInput:
@@ -244,22 +254,28 @@ def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Automate k8s-operator charm release process."
+    parser = argparse.ArgumentParser(description="Automate k8s-operator charm release process.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        required=False,
+        help="Dry run the charm release process",
     )
     parser.add_argument(
-        "--dry-run", action="store_true", required=False, help="Dry run the charm release process"
+        "--charms",
+        nargs="+",
+        default=["k8s", "k8s-worker"],
+        help="List of charms used in k8s-operator",
     )
     parser.add_argument(
-        "--charms", nargs="+", default=["k8s", "k8s-worker"], help="List of charms used in k8s-operator"
+        "--from-risk",
+        default="candidate",
+        help="Source risk level for the charm release process (default: candidate)",
     )
     parser.add_argument(
-        "--from-risk", default="candidate",
-        help="Source risk level for the charm release process (default: candidate)"
-    )
-    parser.add_argument(
-        "--to-risk", default="stable",
-        help="Target risk level for the charm release process (default: stable)"
+        "--to-risk",
+        default="stable",
+        help="Target risk level for the charm release process (default: stable)",
     )
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
