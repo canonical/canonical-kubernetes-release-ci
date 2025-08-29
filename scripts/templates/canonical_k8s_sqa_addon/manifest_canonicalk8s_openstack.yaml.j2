@@ -1,0 +1,11 @@
+{{app("k8s")}}:
+    base: ubuntu@{{ base }}
+    channel: {{ channel }}
+    revision: {{ k8s_revision }}
+{{app("k8s-worker")}}:
+    base: ubuntu@{{ base }}
+    channel: {{ channel }}
+    revision: {{ k8s_worker_revision }}
+{{app("openstack-integrator")}}: {}
+{{app("cinder-csi")}}: {}
+{{app("openstack-cloud-controller")}}: {}

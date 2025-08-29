@@ -77,6 +77,18 @@ class DateTimeMixin(BaseModel):
         return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
 
 
+class Build(BaseModel):
+    """Represents a build in SQA."""
+
+    uuid: UUID
+    status: str
+    result: str
+    addon_id: str
+    arch: Optional[str] = None
+    base: Optional[str] = None
+    channel: Optional[str] = None
+
+
 class Addon(DateTimeMixin):
     """Represents an addon in SQA."""
 
@@ -391,7 +403,7 @@ def _get_addon(name: str) -> Optional[Addon]:
         return None
 
     if len(addons) > 1:
-        raise SQAFailureError("Too many addons from cshow command")
+        raise SQAFailureError("Too many addons from show command")
 
     return addons[0]
 
@@ -439,6 +451,62 @@ def _create_addon(version, variables) -> Addon:
         raise SQAFailureError("Too many addons from create command")
 
     return addons[0]
+
+
+def create_build(version, variables) -> Build:
+    """Create a build for the given variables."""
+    addon = _create_addon(version, variables)
+
+    cmd = (
+        # wokeignore:rule=master
+        f"build add --deployment-branch solutionsqa/fkb/sku/master-canonicalk8s-jammy-cos "
+        f"--existing_addon {addon.uuid} --format json"
+    )
+    resp = _weebl_run(*shlex.split(cmd))
+
+    log.info(resp)
+    builds = parse_response_lists(Build, resp)
+
+    if not builds:
+        raise SQAFailureError("no builds returned from create command")
+
+    if len(builds) > 1:
+        raise SQAFailureError("Too many builds from create command")
+
+    return builds[0]
+
+
+def list_builds(status: str) -> list[Build]:
+    """Get the list of all builds."""
+    cmd = f"build list --number 0 --status {status} --format json"
+
+    resp = _weebl_run(*shlex.split(cmd))
+
+    log.info(resp)
+    builds = parse_response_lists(Build, resp)
+
+    if not builds:
+        raise SQAFailureError("no build returned from show command")
+
+    return builds
+
+
+def get_build(uuid: str) -> Build:
+    """Get the build with the given UUID."""
+    cmd = f"build show {uuid} --format json"
+
+    resp = _weebl_run(*shlex.split(cmd))
+
+    log.info(resp)
+    builds = parse_response_lists(Build, resp)
+
+    if not builds:
+        raise SQAFailureError("no build returned from show command")
+
+    if len(builds) > 1:
+        raise SQAFailureError("Too many builds from show command")
+
+    return builds[0]
 
 
 def _weebl_run(*args, **kwds) -> str:

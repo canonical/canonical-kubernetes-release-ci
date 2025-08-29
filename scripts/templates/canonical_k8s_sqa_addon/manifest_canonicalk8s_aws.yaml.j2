@@ -1,17 +1,11 @@
 {{app("k8s")}}:
-    units: 3
     base: ubuntu@{{ base }}
-    constraints: arch=amd64 cores=2 mem=8192M root-disk=16384M allocate-public-ip=true
     channel: {{ channel }}
     revision: {{ k8s_revision }}
 {{app("k8s-worker")}}:
-    units: 3
     base: ubuntu@{{ base }}
-    constraints: arch=amd64 cores=2 mem=8192M root-disk=16384M allocate-public-ip=true
     channel: {{ channel }}
     revision: {{ k8s_worker_revision }}
-{{app("aws-integrator")}}:
-  channel: 1.33/edge
-  base: ubuntu@22.04
+{{app("aws-integrator")}}: {}
 {{app("aws-k8s-storage")}}: {}
 {{app("aws-cloud-provider")}}: {}

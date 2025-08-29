@@ -3,17 +3,25 @@ from uuid import UUID
 
 import pytest
 from util.sqa import (
+    Addon,
     TestPlanInstanceStatus,
     _create_addon,
     _create_test_plan_instance,
     _product_versions,
     _test_plan_instances,
+    create_build,
 )
 
 
 @pytest.fixture
 def mock_weebl_run():
     with patch("util.sqa._weebl_run") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_create_addon():
+    with patch("util.sqa._create_addon") as mock:
         yield mock
 
 
@@ -48,12 +56,12 @@ def test_create_test_plan_instance(mock_weebl_run):
 
 
 def test_create_addon(mock_weebl_run):
-    mock_test_plan_instances: str
+    mock_addon: str
 
     with open("tests/unit/util/testdata/createaddon.json", "r") as file:
-        mock_test_plan_instances = file.read()
+        mock_addon = file.read()
 
-    mock_weebl_run.return_value = mock_test_plan_instances
+    mock_weebl_run.return_value = mock_addon
     addon = _create_addon(
         "k8s-operator-k8s-741-k8s_worker-739",
         {
@@ -66,6 +74,36 @@ def test_create_addon(mock_weebl_run):
     )
 
     assert addon.uuid == UUID("b6d399db-f188-4de0-8870-1756f2de2e2c")
+
+
+def test_create_build(mock_weebl_run, mock_create_addon):
+    mock_builds: str
+
+    with open("tests/unit/util/testdata/addbuild.json", "r") as file:
+        mock_builds = file.read()
+
+    mock_weebl_run.return_value = mock_builds
+    mock_create_addon.return_value = Addon(
+        uuid="b6d399db-f188-4de0-8870-1756f2de2e2c",
+        id="803",
+        created_at="2025-05-07T13:26:54.902590Z",
+        updated_at="2025-05-07T13:26:54.902590Z",
+        file="http://255.255.255.255:8080/uploads/tmptf6ph2ys.zip",
+        name="k8s_test",
+    )
+    build = create_build(
+        "1293-amd64-22.04-1.32-beta",
+        {
+            "app": lambda x: x,
+            "base": "22.04",
+            "arch": "amd64",
+            "channel": "1.32/candidate",
+            "k8s_revision": "741",
+            "k8s_worker_revision": "739",
+        },
+    )
+
+    assert build.uuid == UUID("22aa4c33-6d6c-457b-a301-3cb184c0787d")
 
 
 def test_test_plan_instances(mock_weebl_run):

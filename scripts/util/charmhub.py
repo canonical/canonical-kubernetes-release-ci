@@ -38,6 +38,10 @@ class Bundle:
         """Set the revision matrix for a charm in the bundle."""
         self.data[charm] = revision_matrix
 
+    def get(self, charm):
+        """Get the revision matrix for a charm in the bundle."""
+        return self.data[charm]
+
     def is_testable(self):
         """Check if the bundle is testable."""
         if not len(self.data) or any(matrix is None for matrix in self.data.values()):

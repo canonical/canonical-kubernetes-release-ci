@@ -1,0 +1,8 @@
+{{app("k8s")}}:
+    base: ubuntu@{{ base }}
+    revision: {{ k8s_revision }}
+    channel: {{ channel }}
+{{app("k8s-worker")}}:
+    base: ubuntu@{{ base }}
+    revision: {{ k8s_worker_revision }}
+    channel: {{ channel }}

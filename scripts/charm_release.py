@@ -170,67 +170,56 @@ def ensure_track_state(
     return track_state
 
 
-def process_track(
-    bundle_charms: list[str],
-    track: str,
-    dry_run: bool,
-    priority_generator: sqa.PriorityGenerator,
-) -> ProcessState:
+def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -> ProcessState:
     """Process the given track based on its current state."""
-    candidate_channel = f"{track}/candidate"
-    stable_channel = f"{track}/stable"
+    dry_run: bool = args.dry_run
+    bundle_charms: list[str] = args.charms
+    from_channel = f"{track}/{args.from_risk}"
+    to_channel = f"{track}/{args.to_risk}"
     k8s_operator_bundle = charmhub.Bundle("k8s-operator")
-    at_least_one_charm_in_candidate = False
+    at_least_one_charm = False
     for charm in bundle_charms:
         log.info(f"Getting revisions for {charm} charm on track {track}")
         try:
-            candidate_revision_matrix = charmhub.get_revision_matrix(charm, candidate_channel)
+            from_revision_matrix = charmhub.get_revision_matrix(charm, from_channel)
         except HTTPError:
             log.exception(
-                f"failed to get candidate revision matrix for "
-                f"charm {charm} channel {candidate_channel}"
+                f"failed to get revision matrix for charm {charm} channel={from_channel}"
             )
             return ProcessState.PROCESS_CI_FAILED
-        log.info("Channel %s revisions:\n %s", candidate_channel, candidate_revision_matrix)
+        log.info("Channel %s revisions:\n %s", from_channel, from_revision_matrix)
 
         try:
-            stable_revision_matrix = charmhub.get_revision_matrix(charm, stable_channel)
+            stable_revision_matrix = charmhub.get_revision_matrix(charm, to_channel)
         except HTTPError:
-            log.exception(
-                f"failed to get stable revision matrix for charm {charm} channel {stable_channel}"
-            )
+            log.exception(f"failed to get revision matrix for charm {charm} channel={to_channel}")
             return ProcessState.PROCESS_CI_FAILED
-        log.info("Channel %s revisions:\n %s", stable_channel, stable_revision_matrix)
+        log.info("Channel %s revisions:\n %s", to_channel, stable_revision_matrix)
 
-        if not candidate_revision_matrix:
-            log.info(f"The channel {candidate_channel} of {charm} has no revisions.")
+        if not from_revision_matrix:
+            log.info(f"The channel {from_channel} of {charm} has no revisions.")
             k8s_operator_bundle.set(charm, stable_revision_matrix)
             continue
 
-        if candidate_revision_matrix == stable_revision_matrix:
+        if from_revision_matrix == stable_revision_matrix:
             log.info(
-                "The channel %s of %s is already published in %s.",
-                candidate_channel,
-                charm,
-                stable_channel,
+                f"The channel {from_channel} of {charm} is already published in {to_channel}."
             )
             k8s_operator_bundle.set(charm, stable_revision_matrix)
             continue
-        at_least_one_charm_in_candidate = True
-        k8s_operator_bundle.set(charm, candidate_revision_matrix)
+        at_least_one_charm = True
+        k8s_operator_bundle.set(charm, from_revision_matrix)
 
     if not k8s_operator_bundle.is_testable():
-        log.info(f"k8s operator has a missing charm in track {track}. Skipping...")
+        log.info(f"k8s is missing a charm in channel={from_channel}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
 
-    if not at_least_one_charm_in_candidate:
-        log.info(f"no charm has candidate revisions on track {track}. Skipping...")
+    if not at_least_one_charm:
+        log.info(f"Charm has no revisions in channel={from_channel}. Skipping...")
         return ProcessState.PROCESS_UNCHANGED
 
     try:
-        state = ensure_track_state(
-            candidate_channel, k8s_operator_bundle, dry_run, priority_generator
-        )
+        state = ensure_track_state(from_channel, k8s_operator_bundle, dry_run, priority_generator)
         log.info(f"Track {track} is in state: {state}")
 
         if state.empty:
@@ -240,7 +229,7 @@ def process_track(
             log.info(f"Release run for {track} succeeded. Promoting charm revisions...")
             if not dry_run:
                 for charm in bundle_charms:
-                    charmhub.promote_charm(charm, candidate_channel, stable_channel)
+                    charmhub.promote_charm(charm, from_channel, to_channel)
             return ProcessState.PROCESS_SUCCESS
         elif state.in_progress:
             log.info(f"Release run for {track} is still in progress. No action needed.")
@@ -257,7 +246,7 @@ def process_track(
     except charmhub.CharmcraftError:
         log.exception(f"process track {track} failed because of the Charmcraft")
         return ProcessState.PROCESS_CI_FAILED
-    except sqa.InvalidSQAInputError:
+    except sqa.InvalidSQAInput:
         log.exception(
             f"process track {track} failed because of revision could not be extracted from version"
         )
@@ -277,6 +266,16 @@ def main():
         nargs="+",
         default=["k8s", "k8s-worker"],
         help="List of charms used in k8s-operator",
+    )
+    parser.add_argument(
+        "--from-risk",
+        default="candidate",
+        help="Source risk level for the charm release process (default: candidate)",
+    )
+    parser.add_argument(
+        "--to-risk",
+        default="stable",
+        help="Target risk level for the charm release process (default: stable)",
     )
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
@@ -301,13 +300,13 @@ def main():
     results = {}
     priority_generator = sqa.PriorityGenerator(initial=5)
     for track in tracks:
-        process_state = process_track(args.charms, track, args.dry_run, priority_generator)
+        process_state = process_track(track, priority_generator, args)
         if process_state in [
             ProcessState.PROCESS_IN_PROGRESS,
             ProcessState.PROCESS_UNCHANGED,
         ]:
             continue
-        results[f"{track}"] = str(process_state)
+        results[track] = str(process_state)
 
     with open("results.txt", "w") as f:
         for key, value in results.items():
