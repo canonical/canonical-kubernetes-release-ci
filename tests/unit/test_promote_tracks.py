@@ -52,7 +52,7 @@ def _expected_proposals(track, next_risk, risk, revision, upgrade_channels=None)
         {
             "arch": "amd64",
             "branch": MOCK_BRANCH,
-            "lxd-images": ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:24.04"],
+            "lxd-images": ["ubuntu:22.04", "ubuntu:24.04"],
             "name": f"k8s-1.31-tracky/{next_risk}-amd64",
             "next-risk": next_risk,
             "revision": revision,
