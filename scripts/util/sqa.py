@@ -6,6 +6,7 @@ import shlex
 import subprocess
 import tempfile
 import threading
+import util
 from enum import StrEnum
 from pathlib import Path
 from typing import Optional
@@ -338,19 +339,13 @@ def start_release_test(channel, base, arch, revisions, version, priority):
         product_version = _create_product_version(channel, base, version)
 
     track = channel.split("/")[0]
-    variables = {
-        "app": lambda name: name,
+    variables = util.patch_sqa_variables(track, {
         "base": base,
         "arch": arch,
         "channel": channel,
         "branch": f"release-{track}",
         **revisions,
-    }
-
-    if m := re.match(r"^(\d+)\.(\d+)", track):
-        if tuple(map(int, m.groups())) <= (1, 32):
-            # For channels <= 1.32 we use underscore names
-            variables["app"] = lambda name: name.replace("-", "_")
+    })
 
     addon = _create_addon(version, variables)
 
