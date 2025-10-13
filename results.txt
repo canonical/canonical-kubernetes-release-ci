@@ -1,4 +1,0 @@
-Revision: 1388, Status: Queued, Result: None, UUID: 5c67da9e-4c14-4853-bd68-de166167f4e1, Arch: amd64, Base: 22.04, Channel: 1.33/beta
-Revision: 1390, Status: Finished, Result: 2, UUID: 46abaa64-c7ec-4d82-8c8f-a43428a56ebe, Arch: amd64, Base: 24.04, Channel: 1.33/beta
-Revision: 1383, Status: Finished, Result: 1, UUID: 1b34fa85-d989-4322-91e8-bef242adab0f, Arch: amd64, Base: 24.04, Channel: 1.32/beta
-Revision: 1382, Status: Finished, Result: 1, UUID: 4f50d6f6-0200-4195-940f-cc3011390803, Arch: amd64, Base: 22.04, Channel: 1.32/beta
