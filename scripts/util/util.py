@@ -86,7 +86,7 @@ def patch_sqa_variables(track: str, variables):
     """Patch the SQA variables for the given snap track."""
     variables = {
         "app": lambda name: name,
-        "model": lambda name, cloud: {"name": name, "cloud": cloud},
+        "model": lambda name, cloud: f'{{ name = "{name}", cloud = "{cloud}" }}',
         **variables
     }
 
@@ -94,6 +94,6 @@ def patch_sqa_variables(track: str, variables):
         if tuple(map(int, m.groups())) <= (1, 32):
             # For channels <= 1.32 we use underscore names
             variables["app"] = lambda name: name.replace("-", "_")
-            variables["model"] = lambda name, cloud: f"{name}"
+            variables["model"] = lambda name, _: f"{name}"
 
     return variables
