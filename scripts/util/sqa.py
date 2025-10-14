@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Optional
 from uuid import UUID
 
-import util
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, Field, TypeAdapter, field_validator
+from util import util
 
 log = logging.getLogger(__name__)
 
@@ -428,7 +428,7 @@ def _create_addon(version, variables) -> Addon:
 def create_build(version, variables) -> Build:
     """"Create a build for the given variables."""
     addon = _create_addon(version, variables)
-    
+
     # wokeignore:rule=master
     cmd = f"build add --deployment-branch solutionsqa/fkb/sku/master-canonicalk8s-jammy-cos --existing_addon {addon.uuid} --format json"
     resp = _weebl_run(*shlex.split(cmd))
@@ -456,7 +456,7 @@ def list_builds(status: str) -> list[Build]:
 
     if not builds:
         raise SQAFailure("no build returned from show command")
-    
+
     return builds
 
 
