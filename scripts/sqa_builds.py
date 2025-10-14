@@ -47,7 +47,7 @@ def get_results(state: State) -> str:
         return ""
 
     for revision, details in state.builds.items():
-        results.append(f"Revision: {revision}, Status: {details.status}, Result: {details.result}, UUID: {details.uuid}, Arch: {details.arch}, Base: {details.base}, Channel: {details.channel}")
+        results.append(f"Revision: {revision}, Status: {details.status}, Result: {sqa.get_result(details.result)}, UUID: {details.uuid}, Arch: {details.arch}, Base: {details.base}, Channel: {details.channel}")
 
     return "\n".join(results)
 

@@ -33,6 +33,14 @@ class SQAFailure(Exception):
     pass
 
 
+def get_result(result_id: str) -> str:
+    result_map = {
+        "1": "success",
+        "2": "failure",
+    }
+
+    return result_map.get(result_id, result_id)
+
 def get_series(base: str) -> str | None:
     base_series_map = {
         "24.04": "noble",
