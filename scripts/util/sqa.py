@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html
 K8S_OPERATOR_PRODUCT_UUID = "432252b9-2041-4a9a-aece-37c2dbd54201"
 
-K8S_OPERATOR_TEST_PLAN_ID = "394fb5b6-1698-4226-bd3e-23b471ee1bd4"
+K8S_OPERATOR_TEST_PLAN_ID = "b171738f-96a4-42ab-bd91-b90e17b50c35"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
 
