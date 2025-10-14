@@ -85,3 +85,20 @@ def upstream_prerelease_to_snap_track(prerelease: str) -> str:
             "Could not determine snap track for upstream pre-release: %s" % prerelease
         )
     return track
+
+
+def patch_sqa_variables(track: str, variables):
+    """Patch the SQA variables for the given snap track."""
+    variables = {
+        "app": lambda name: name,
+        "model": lambda name, cloud: f'{{ name = "{name}", cloud = "{cloud}" }}',
+        **variables
+    }
+
+    if m := re.match(r"^(\d+)\.(\d+)", track):
+        if tuple(map(int, m.groups())) <= (1, 32):
+            # For channels <= 1.32 we use underscore names
+            variables["app"] = lambda name: name.replace("-", "_")
+            variables["model"] = lambda name, _: f"{name}"
+
+    return variables

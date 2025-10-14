@@ -12,7 +12,7 @@ import re
 
 from pydantic import BaseModel
 from requests.exceptions import HTTPError
-from util import charmhub, k8s, sqa
+from util import charmhub, k8s, sqa, util
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -113,20 +113,17 @@ def create_one_build(
 
     revisions = k8s_operator_bundle.get_revisions(arch_in_test, base_in_test)
     k8s_rev = revisions.get("k8s_revision")
+    if not k8s_rev:
+        log.error(f"No k8s revision found for arch {arch_in_test} and base {base_in_test}")
+        return
     version = f"k8s-build-{k8s_rev}-{arch_in_test}-{base_in_test}-{track}-{risk_level}"
-    variables = {
-        "app": lambda name: name,
+    variables = util.patch_sqa_variables(track, {
         "base": base_in_test,
         "arch": arch_in_test,
         "channel": channel,
         "branch": f"release-{track}",
         **revisions,
-    }
-
-    if m := re.match(r"^(\d+)\.(\d+)", track):
-        if tuple(map(int, m.groups())) <= (1, 32):
-            # For channels <= 1.32 we use underscore names
-            variables["app"] = lambda name: name.replace("-", "_")
+    })
 
     log.info(f"Creating SQA build for {channel} for revisions: {revisions}")
     if not dry_run:
