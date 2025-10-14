@@ -33,13 +33,10 @@ class SQAFailure(Exception):
     pass
 
 
-def get_result(result_id: str) -> str:
-    result_map = {
-        "1": "success",
-        "2": "failure",
-    }
+class BuildResult(StrEnum):
+    SUCCESS = "1"
+    FAILURE = "2"
 
-    return result_map.get(result_id, result_id)
 
 def get_series(base: str) -> str | None:
     base_series_map = {
@@ -70,7 +67,7 @@ class PriorityGenerator:
 class Build(BaseModel):
     uuid: UUID
     status: str
-    result: str
+    result: BuildResult
     created_at: datetime.datetime
     addon_id: str
     arch: Optional[str] = None

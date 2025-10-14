@@ -47,7 +47,7 @@ def get_results(state: State) -> str:
         return ""
 
     for revision, details in state.builds.items():
-        results.append(f"Revision: {revision}, Status: {details.status}, Result: {sqa.get_result(details.result)}, UUID: {details.uuid}, Arch: {details.arch}, Base: {details.base}, Channel: {details.channel}")
+        results.append(f"Revision: {revision}, Status: {details.status}, Result: {details.result}, UUID: {details.uuid}, Arch: {details.arch}, Base: {details.base}, Channel: {details.channel}")
 
     return "\n".join(results)
 
@@ -114,7 +114,7 @@ def create_one_build(
         **revisions,
     })
 
-    
+
 
     log.info(f"Creating SQA build for {channel} for revisions: {revisions}")
     if not dry_run:
@@ -170,7 +170,7 @@ def main():
             args.base,
             args.dry_run,
         )
-        
+
     results = get_results(state)
     with open("results.txt", "w") as f:
         f.write(results)
