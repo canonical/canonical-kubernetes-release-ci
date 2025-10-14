@@ -92,7 +92,7 @@ def patch_sqa_variables(track: str, variables):
     variables = {
         "app": lambda name: name,
         "model": lambda name, cloud: f'{{ name = "{name}", cloud = "{cloud}" }}',
-        **variables
+        **variables,
     }
 
     if m := re.match(r"^(\d+)\.(\d+)", track):

@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html
 K8S_OPERATOR_PRODUCT_UUID = "432252b9-2041-4a9a-aece-37c2dbd54201"
 
-K8S_OPERATOR_TEST_PLAN_ID = "394fb5b6-1698-4226-bd3e-23b471ee1bd4"
+K8S_OPERATOR_TEST_PLAN_ID = "b171738f-96a4-42ab-bd91-b90e17b50c35"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
 
@@ -362,13 +362,16 @@ def start_release_test(channel, base, arch, revisions, version, priority):
         product_version = _create_product_version(channel, base, version)
 
     track = channel.split("/")[0]
-    variables = util.patch_sqa_variables(track, {
-        "base": base,
-        "arch": arch,
-        "channel": channel,
-        "branch": f"release-{track}",
-        **revisions,
-    })
+    variables = util.patch_sqa_variables(
+        track,
+        {
+            "base": base,
+            "arch": arch,
+            "channel": channel,
+            "branch": f"release-{track}",
+            **revisions,
+        },
+    )
 
     addon = _create_addon(version, variables)
 

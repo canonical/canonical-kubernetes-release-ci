@@ -117,13 +117,16 @@ def create_one_build(
         log.error(f"No k8s revision found for arch {arch_in_test} and base {base_in_test}")
         return
     version = f"k8s-build-{k8s_rev}-{arch_in_test}-{base_in_test}-{track}-{risk_level}"
-    variables = util.patch_sqa_variables(track, {
-        "base": base_in_test,
-        "arch": arch_in_test,
-        "channel": channel,
-        "branch": f"release-{track}",
-        **revisions,
-    })
+    variables = util.patch_sqa_variables(
+        track,
+        {
+            "base": base_in_test,
+            "arch": arch_in_test,
+            "channel": channel,
+            "branch": f"release-{track}",
+            **revisions,
+        },
+    )
 
     log.info(f"Creating SQA build for {channel} for revisions: {revisions}")
     if not dry_run:
