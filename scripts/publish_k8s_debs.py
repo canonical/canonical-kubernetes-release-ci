@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Build and publish Debian packages for Kubernetes components."""
 
 import argparse
 import logging
@@ -66,7 +67,7 @@ class Credentials(BaseModel):
 
 
 class K8sDebManager:
-    """K8sDebManager is responsible for building and publishing Debian packages for Kubernetes components."""
+    """Responsible for building and publishing Debian packages for Kubernetes components."""
 
     def __init__(
         self,
@@ -77,8 +78,7 @@ class K8sDebManager:
         dry_run: bool,
         stable_ppa: bool = True,
     ):
-        """
-        Initialize the K8sDebManager.
+        """Initialize the K8sDebManager.
 
         Args:
             repo_tag (str): The git tag of the Kubernetes repository (e.g. v1.33.0).
@@ -90,6 +90,7 @@ class K8sDebManager:
                 Test PPA is going to be the same as stable PPA with a `-test` suffix. Example:
                     Stable PPA:  canonical-kubernetes/v1.33
                     Test PPA:    canonical-kubernetes/v1.33-test
+
         """
         self._jinja_env = Environment(
             # NOTE(Hue): We need to start the path with `scripts` because
@@ -124,7 +125,8 @@ class K8sDebManager:
     def _deb_version(self) -> str:
         v = f"{self._k8s_version.major}.{self._k8s_version.minor}.{self._k8s_version.micro}"
         if self._k8s_version.is_prerelease and len(self._k8s_version.pre) > 2:  # type: ignore
-            pre = f"{PRE_TO_RISK.get(self._k8s_version.pre[0], self._k8s_version.pre[0])}.{self._k8s_version.pre[1]}"  # type: ignore
+            pre_0 = self._k8s_version.pre[0]  # type: ignore
+            pre = f"{PRE_TO_RISK.get(pre_0, pre_0)}.{self._k8s_version.pre[1]}"  # type: ignore
             v = f"{v}-{pre}"
         return f"{v}-{self._version_postfix}"
 
@@ -172,7 +174,10 @@ class K8sDebManager:
             "maintainer_name": self._debs_full_name,
             "maintainer_email": self._debs_email,
             "description_short": f"Debian package for {self._component}",
-            "description_long": f"Debian package for {self._component} component of Kubernetes. Published and maintained by Canonical.",
+            "description_long": (
+                f"Debian package for {self._component} component of Kubernetes. "
+                f"Published and maintained by Canonical.",
+            ),
         }
         with open(control_path, "w") as dst:
             dst.write(control_tmpl.render(context))
@@ -294,7 +299,9 @@ class K8sDebManager:
             execute(["tar", "xf", str(path)], cwd=wd, timeout=None)
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
-                f"Failed to extract tar file: CODE: {e.returncode}\nSTDERR: {e.stderr}\nSTDOUT: {e.stdout}"
+                f"Failed to extract tar file: CODE: {e.returncode}\n"
+                f"STDERR: {e.stderr}\n"
+                f"STDOUT: {e.stdout}"
             )
 
     def _vendor_go_runtime(self):
@@ -317,7 +324,9 @@ class K8sDebManager:
             LOG.info("debuild output: \n%s", out)
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
-                f"Failed to build source package: CODE: {e.returncode}\nSTDERR: {e.stderr}\nSTDOUT: {e.stdout}"
+                f"Failed to build source package: CODE: {e.returncode}\n"
+                f"STDERR: {e.stderr}\n"
+                f"STDOUT: {e.stdout}"
             )
 
     def _upload_to_ppa(self):
@@ -337,11 +346,13 @@ class K8sDebManager:
             LOG.info("dput output: \n%s", out)
         except subprocess.CalledProcessError as e:
             raise RuntimeError(
-                f"Failed to publish source package: CODE: {e.returncode}\nSTDERR: {e.stderr}\nSTDOUT: {e.stdout}"
+                f"Failed to publish source package: CODE: {e.returncode}\n"
+                f"STDERR: {e.stderr}\n"
+                f"STDOUT: {e.stdout}"
             )
 
     def _configure_debuild(self):
-        """Configure debuild with credentials and options"""
+        """Configure debuild with credentials and options."""
         devscripts_path = os.path.join(os.path.expanduser("~"), ".devscripts")
         devscripts_tmpl = self._jinja_env.get_template("devscripts.j2")
         context = {
@@ -412,9 +423,7 @@ def main():
         description="Build and publish Debian package for a Kubernetes component.",
     )
     arg_parser.add_argument("component", help="Component name, e.g., kubeadm")
-    arg_parser.add_argument(
-        "--tag", required=True, help="Git tag of Kubernetes (e.g., v1.32.3)"
-    )
+    arg_parser.add_argument("--tag", required=True, help="Git tag of Kubernetes (e.g., v1.32.3)")
     arg_parser.add_argument("--version-postfix", required=True, help="Version postfix")
     arg_parser.add_argument(
         "--stable-ppa",

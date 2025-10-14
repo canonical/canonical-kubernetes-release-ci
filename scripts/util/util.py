@@ -1,3 +1,5 @@
+"""Utility functions for snap build and release scripts."""
+
 import argparse
 import logging
 import re
@@ -17,27 +19,31 @@ TIP_BRANCH = re.compile(
 EXEC_TIMEOUT = 60
 
 
-def flavors(dir: str) -> list[str]:
+def flavors(path: str) -> list[str]:
+    """Return a sorted list of available flavors in the given directory."""
     patch_dir = Path("build-scripts/patches")
-    output = repo.ls_tree(dir, patch_dir)
-    patches = set(Path(f).relative_to(patch_dir).parents[0] for f in output)
+    output = repo.ls_tree(path, patch_dir)
+    patches = {Path(f).relative_to(patch_dir).parents[0] for f in output}
     return sorted([p.name for p in patches] + ["classic"])
 
 
 def recipe_name(flavor: str, ver: semver.Version, tip: bool) -> str:
+    """Return the snap recipe name for the given flavor and version."""
     if tip:
         return f"{SNAP_NAME}-snap-tip-{flavor}"
     return f"{SNAP_NAME}-snap-{ver.major}.{ver.minor}-{flavor}"
 
 
 def setup_logging(args: argparse.Namespace):
-    FORMAT = "%(name)20s %(asctime)s %(levelname)8s - %(message)s"
-    logging.basicConfig(format=FORMAT)
+    """Set up logging based on command line arguments."""
+    format = "%(name)20s %(asctime)s %(levelname)8s - %(message)s"
+    logging.basicConfig(format=format)
     if args.loglevel != logging.getLevelName(LOG.root.level):
         LOG.root.setLevel(level=args.loglevel.upper())
 
 
 def setup_arguments(arg_parser: argparse.ArgumentParser):
+    """Set up common command line arguments."""
     arg_parser.add_argument(
         "--dry-run",
         default=False,
@@ -57,9 +63,7 @@ def setup_arguments(arg_parser: argparse.ArgumentParser):
     return args
 
 
-def execute(
-    cmd: List[str], check=True, timeout: Optional[int] = EXEC_TIMEOUT, cwd=None
-):
+def execute(cmd: List[str], check=True, timeout: Optional[int] = EXEC_TIMEOUT, cwd=None):
     """Run the specified command and return the stdout/stderr output as a tuple."""
     LOG.debug("Executing: %s, cwd: %s.", cmd, cwd)
     proc = subprocess.run(
@@ -69,6 +73,7 @@ def execute(
 
 
 def upstream_prerelease_to_snap_track(prerelease: str) -> str:
+    """Convert an upstream prerelease string to a snap track."""
     prerelease_map = {
         "alpha": "edge",
         "beta": "beta",
@@ -87,7 +92,7 @@ def patch_sqa_variables(track: str, variables):
     variables = {
         "app": lambda name: name,
         "model": lambda name, cloud: f'{{ name = "{name}", cloud = "{cloud}" }}',
-        **variables
+        **variables,
     }
 
     if m := re.match(r"^(\d+)\.(\d+)", track):

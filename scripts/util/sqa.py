@@ -1,3 +1,5 @@
+"""Utility functions for interacting with the SQA (Snap Quality Assurance) system."""
+
 import datetime
 import json
 import logging
@@ -25,11 +27,15 @@ K8S_OPERATOR_TEST_PLAN_ID = "b171738f-96a4-42ab-bd91-b90e17b50c35"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
 
-class InvalidSQAInput(Exception):
+class InvalidSQAInputError(Exception):
+    """Raised when the input to an SQA command is invalid."""
+
     pass
 
 
-class SQAFailure(Exception):
+class SQAFailureError(Exception):
+    """Raised when an SQA command fails or returns unexpected results."""
+
     pass
 
 
@@ -44,52 +50,58 @@ def get_series(base: str) -> str | None:
 
 
 class PriorityGenerator:
-    """
-    PriorityGenerator is an atomic counter to create atomic priorities for new TPIs we create.
-    """
+    """PriorityGenerator is a counter to create priorities for new TPIs we create."""
 
     def __init__(self, initial=0):
+        """Initialize the priority generator with an initial value."""
         self.value = initial
         self._lock = threading.Lock()
 
     @property
     def next_priority(self):
+        """Get the next priority value."""
         with self._lock:
             self.value += 1
             return self.value
 
 
+class DateTimeMixin(BaseModel):
+    """Mixin to parse ISO formatted datetime strings into datetime objects."""
+
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def parse_datetime(cls, v: str) -> datetime.datetime:
+        """Parse ISO formatted datetime strings into datetime objects."""
+        return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
+
+
 class Build(BaseModel):
+    """Represents a build in SQA."""
+
     uuid: UUID
     status: str
     result: str
-    created_at: datetime.datetime
     addon_id: str
     arch: Optional[str] = None
     base: Optional[str] = None
     channel: Optional[str] = None
 
-    @field_validator("created_at", mode="before")
-    @classmethod
-    def parse_datetime(cls, v: str) -> datetime.datetime:
-        return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
 
+class Addon(DateTimeMixin):
+    """Represents an addon in SQA."""
 
-class Addon(BaseModel):
     id: str
     name: str
     file: str
-    created_at: datetime.datetime
-    updated_at: datetime.datetime
     uuid: UUID
-
-    @field_validator("created_at", "updated_at", mode="before")
-    @classmethod
-    def parse_datetime(cls, v: str) -> datetime.datetime:
-        return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
 
 
 class ProductVersion(BaseModel):
+    """Represents a product version in SQA."""
+
     uuid: UUID
     version: str
     channel: str
@@ -99,6 +111,8 @@ class ProductVersion(BaseModel):
 
 
 class TestPlanInstanceStatus(StrEnum):
+    """Enum representing the status of a test plan instance."""
+
     IN_PROGRESS = "In Progress"
     SKIPPED = "skipped"
     ERROR = "error"
@@ -112,6 +126,7 @@ class TestPlanInstanceStatus(StrEnum):
 
     @classmethod
     def from_name(cls, name):
+        """Convert a string name to a TestPlanInstanceStatus enum member."""
         for state in cls:
             if state.value.lower() == name.lower():
                 return state
@@ -119,54 +134,54 @@ class TestPlanInstanceStatus(StrEnum):
 
     @property
     def in_progress(self):
+        """Determine if the test plan instance is in progress."""
         return self == TestPlanInstanceStatus.IN_PROGRESS
 
     @property
     def succeeded(self):
+        """Determine if the test plan instance has succeeded."""
         return self == TestPlanInstanceStatus.PASSED
 
     @property
     def failed(self):
-        return self in [
-            TestPlanInstanceStatus.FAILED,
-        ]
+        """Determine if the test plan instance has failed."""
+        return self in [TestPlanInstanceStatus.FAILED]
 
 
-class TestPlanInstance(BaseModel):
+class TestPlanInstance(DateTimeMixin):
+    """Represents a single instance of a test plan."""
+
     test_plan: str
-    created_at: datetime.datetime
-    updated_at: datetime.datetime
     id: str
     effective_priority: float
     status: TestPlanInstanceStatus
     uuid: UUID
     product_under_test: str
 
-    @field_validator("created_at", "updated_at", mode="before")
-    @classmethod
-    def parse_datetime(cls, v: str) -> datetime.datetime:
-        return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
-
     @field_validator("status", mode="before")
     @classmethod
     def parse_status(cls, v: str) -> TestPlanInstanceStatus:
+        """Parse the status string into a TestPlanInstanceStatus enum member."""
         return TestPlanInstanceStatus.from_name(v)
 
 
 def _create_product_version(channel: str, base: str, version: str) -> ProductVersion:
     if not (series := get_series(base)):
-        raise InvalidSQAInput("invalid base provided")
+        raise InvalidSQAInputError("invalid base provided")
 
     # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
     # the revision of the k8s charm as the identifier.
     k8s_revision_match = re.search(r"k8s-(\d+)", version)
 
     if not k8s_revision_match:
-        raise InvalidSQAInput("could not extract revision from version")
+        raise InvalidSQAInputError("could not extract revision from version")
 
     k8s_revision = k8s_revision_match.group(1)
 
-    product_version_cmd = f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} --channel {channel} --revision {k8s_revision} --series {series}"
+    product_version_cmd = (
+        f"productversion add --format json --product-uuid {K8S_OPERATOR_PRODUCT_UUID} "
+        f"--channel {channel} --revision {k8s_revision} --series {series}"
+    )
 
     log.info(
         "Creating product version for channel %s vision %s...\n %s",
@@ -181,10 +196,10 @@ def _create_product_version(channel: str, base: str, version: str) -> ProductVer
     product_versions = parse_response_lists(ProductVersion, product_version_response)
 
     if not product_versions:
-        raise SQAFailure("no product version returned from create command")
+        raise SQAFailureError("no product version returned from create command")
 
     if len(product_versions) > 1:
-        raise SQAFailure("Too many product versions from create command")
+        raise SQAFailureError("Too many product versions from create command")
 
     return product_versions[0]
 
@@ -192,7 +207,11 @@ def _create_product_version(channel: str, base: str, version: str) -> ProductVer
 def _create_test_plan_instance(
     product_version_uuid: str, addon_uuid: str, priority: int
 ) -> TestPlanInstance:
-    test_plan_instance_cmd = f"testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} --addon_id {addon_uuid} --status 'In Progress' --base_priority {priority} --product_under_test {product_version_uuid}"
+    test_plan_instance_cmd = (
+        f"testplaninstance add --format json --test_plan {K8S_OPERATOR_TEST_PLAN_ID} "
+        f"--addon_id {addon_uuid} --status 'In Progress' "
+        f"--base_priority {priority} --product_under_test {product_version_uuid}"
+    )
 
     log.info(
         "Creating test plan instance for product version %s...\n %s",
@@ -211,18 +230,17 @@ def _create_test_plan_instance(
     test_plan_instances = parse_response_lists(TestPlanInstance, json_str)
 
     if not test_plan_instances:
-        raise SQAFailure("no test plan instance returned from create command")
+        raise SQAFailureError("no test plan instance returned from create command")
 
     if len(test_plan_instances) > 1:
-        raise SQAFailure("Too many test plan instance from create command")
+        raise SQAFailureError("Too many test plan instance from create command")
 
     return test_plan_instances[0]
 
 
-def current_test_plan_instance_status(
-    channel, base, version
-) -> Optional[TestPlanInstanceStatus]:
-    """
+def current_test_plan_instance_status(channel, base, version) -> Optional[TestPlanInstanceStatus]:
+    """Determine the current status of the test plan instance.
+
     First try to get any passed TPIs for the (channel, base, version)
     If no passed TPI found, try to get in progress TPIs
     If no in progress TPI found, try to get failed/(in-)error TPIs
@@ -266,10 +284,11 @@ def _joined_test_plan_instances(
     ]
 
 
-def _test_plan_instances(
-    productversion_uuid, status: TestPlanInstanceStatus
-) -> list[UUID]:
-    test_plan_instances_cmd = f"testplaninstance list --format json --productversion-uuid {productversion_uuid} --status '{status.value.lower()}'"
+def _test_plan_instances(productversion_uuid, status: TestPlanInstanceStatus) -> list[UUID]:
+    test_plan_instances_cmd = (
+        f"testplaninstance list --format json --productversion-uuid "
+        f"{productversion_uuid} --status '{status.value.lower()}'"
+    )
 
     log.info(
         "Getting test plan instances for product version %s with status %s...\n %s",
@@ -296,18 +315,21 @@ def _test_plan_instances(
 
 def _product_versions(channel, base, version) -> list[ProductVersion]:
     if not (series := get_series(base)):
-        raise InvalidSQAInput("invalid base provided")
+        raise InvalidSQAInputError("invalid base provided")
 
     # NOTE(Reza): SQA only supports revision and not an arbitrary version, so we are providing only
     # the revision of the k8s charm as the identifier.
     k8s_revision_match = re.search(r"k8s-(\d+)", version)
 
     if not k8s_revision_match:
-        raise InvalidSQAInput
+        raise InvalidSQAInputError
 
     k8s_revision = k8s_revision_match.group(1)
 
-    product_versions_cmd = f"productversion list --channel {channel} --revision {k8s_revision} --series {series} --format json"
+    product_versions_cmd = (
+        f"productversion list --channel {channel} --revision "
+        f"{k8s_revision} --series {series} --format json"
+    )
 
     log.info(
         "Getting product versions for channel %s version %s\n %s",
@@ -327,8 +349,9 @@ def _product_versions(channel, base, version) -> list[ProductVersion]:
 def start_release_test(channel, base, arch, revisions, version, priority):
     if product_versions := _product_versions(channel, base, version):
         if len(product_versions) > 1:
-            raise SQAFailure(
-                f"the ({channel, base, arch}) is supposed to have only one product version for version {version}"
+            raise SQAFailureError(
+                f"the ({channel, base, arch}) is supposed to have only "
+                f"one product version for version {version}"
             )
         product_version = product_versions[0]
         log.info(
@@ -339,13 +362,16 @@ def start_release_test(channel, base, arch, revisions, version, priority):
         product_version = _create_product_version(channel, base, version)
 
     track = channel.split("/")[0]
-    variables = util.patch_sqa_variables(track, {
-        "base": base,
-        "arch": arch,
-        "channel": channel,
-        "branch": f"release-{track}",
-        **revisions,
-    })
+    variables = util.patch_sqa_variables(
+        track,
+        {
+            "base": base,
+            "arch": arch,
+            "channel": channel,
+            "branch": f"release-{track}",
+            **revisions,
+        },
+    )
 
     addon = _create_addon(version, variables)
 
@@ -364,7 +390,7 @@ def _get_addon(name: str) -> Optional[Addon]:
     # The SQA returns StopIteration in case of no addons
     try:
         show_addon_response = _weebl_run(*shlex.split(show_addon_cmd))
-    except SQAFailure:
+    except SQAFailureError:
         return None
 
     log.info(show_addon_response)
@@ -375,7 +401,7 @@ def _get_addon(name: str) -> Optional[Addon]:
         return None
 
     if len(addons) > 1:
-        raise SQAFailure("Too many addons from show command")
+        raise SQAFailureError("Too many addons from show command")
 
     return addons[0]
 
@@ -417,30 +443,33 @@ def _create_addon(version, variables) -> Addon:
     addons = parse_response_lists(Addon, resp)
 
     if not addons:
-        raise SQAFailure("no addon returned from create command")
+        raise SQAFailureError("no addon returned from create command")
 
     if len(addons) > 1:
-        raise SQAFailure("Too many addons from create command")
+        raise SQAFailureError("Too many addons from create command")
 
     return addons[0]
 
 
 def create_build(version, variables) -> Build:
-    """"Create a build for the given variables."""
+    """Create a build for the given variables."""
     addon = _create_addon(version, variables)
 
-    # wokeignore:rule=master
-    cmd = f"build add --deployment-branch solutionsqa/fkb/sku/master-canonicalk8s-jammy-cos --existing_addon {addon.uuid} --format json"
+    cmd = (
+        # wokeignore:rule=master
+        f"build add --deployment-branch solutionsqa/fkb/sku/master-canonicalk8s-jammy-cos "
+        f"--existing_addon {addon.uuid} --format json"
+    )
     resp = _weebl_run(*shlex.split(cmd))
 
     log.info(resp)
     builds = parse_response_lists(Build, resp)
 
     if not builds:
-        raise SQAFailure("no builds returned from create command")
+        raise SQAFailureError("no builds returned from create command")
 
     if len(builds) > 1:
-        raise SQAFailure("Too many builds from create command")
+        raise SQAFailureError("Too many builds from create command")
 
     return builds[0]
 
@@ -455,7 +484,7 @@ def list_builds(status: str) -> list[Build]:
     builds = parse_response_lists(Build, resp)
 
     if not builds:
-        raise SQAFailure("no build returned from show command")
+        raise SQAFailureError("no build returned from show command")
 
     return builds
 
@@ -470,10 +499,10 @@ def get_build(uuid: str) -> Build:
     builds = parse_response_lists(Build, resp)
 
     if not builds:
-        raise SQAFailure("no build returned from show command")
+        raise SQAFailureError("no build returned from show command")
 
     if len(builds) > 1:
-        raise SQAFailure("Too many builds from show command")
+        raise SQAFailureError("Too many builds from show command")
 
     return builds[0]
 
@@ -483,7 +512,7 @@ def _weebl_run(*args, **kwds) -> str:
     try:
         response = subprocess.run(["/snap/bin/weebl-tools.sqalab", *args], **kwds)
     except subprocess.CalledProcessError as e:
-        raise SQAFailure(f"{args[0]} failed: {e.stderr}")
+        raise SQAFailureError(f"{args[0]} failed: {e.stderr}")
     return response.stdout
 
 
