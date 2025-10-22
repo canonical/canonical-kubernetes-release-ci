@@ -4,10 +4,9 @@ on:
   pull_request:
     paths:
       - .github/workflows/k8s-operator-charm-release.yaml
-  # (berkayoz): Unpause after bug is fixed https://github.com/canonical/k8s-snap/pull/1586
-  # schedule:
-  #   # Run 20 minutes after midnight
-  #   - cron: "20 0 * * *"
+  schedule:
+    # Run 20 minutes after midnight
+    - cron: "20 0 * * *"
   workflow_dispatch:
     inputs:
       tox_args:
@@ -37,8 +36,9 @@ jobs:
           cache: 'pip'
       - run: pip install -r scripts/requirements.txt
       - run: sudo snap install weebl-tools --channel latest/edge
+      - run: sudo snap install charmcraft --classic --channel=3.x/stable
       - run: sudo apt-get install -y gettext
-      - name: Populate SQA credentials file 
+      - name: Populate SQA credentials file
         run: |
           sudo snap connect weebl-tools:home
           cat templates/sqa-environments.yaml | envsubst > $HOME/environments.yaml
@@ -72,7 +72,7 @@ jobs:
         with:
           name: results
           path: results.txt
-  
+
   mattermost:
     name: Notify Mattermost
     needs: release-charms
@@ -101,4 +101,4 @@ jobs:
                   "text": "${{ env.RESULTS_TEXT }}"
                 }
               ]
-            }      
+            }
