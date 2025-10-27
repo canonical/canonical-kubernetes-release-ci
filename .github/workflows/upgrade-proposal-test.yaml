@@ -142,9 +142,6 @@ jobs:
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     needs: test-proposal
     steps:
-    - uses: step-security/harden-runner@v2
-      with:
-        egress-policy: audit
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
       with:
