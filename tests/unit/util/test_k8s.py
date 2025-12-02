@@ -1,4 +1,3 @@
-import json
 from unittest.mock import patch
 
 import pytest
@@ -15,9 +14,18 @@ SAMPLE_TAGS = [
 ]
 
 
-@patch("util.k8s._url_get")
-def test_get_k8s_tags(mock_url_get):
-    mock_url_get.return_value = json.dumps(SAMPLE_TAGS)
+@pytest.fixture
+def mock_requests_get():
+    with patch("requests.get") as mock_get:
+        mock_response = mock_get.return_value
+        mock_response.headers = {}
+        mock_response.status_code = 200
+        mock_response.json.return_value = SAMPLE_TAGS
+
+        yield mock_get
+
+
+def test_get_k8s_tags(mock_requests_get):
     tags = get_k8s_tags()
     assert tags == [
         "v1.33.0-alpha.0",
@@ -29,16 +37,12 @@ def test_get_k8s_tags(mock_url_get):
     ]
 
 
-@patch("util.k8s._url_get")
-def test_get_latest_stable(mock_url_get):
-    mock_url_get.return_value = json.dumps(SAMPLE_TAGS)
+def test_get_latest_stable(mock_requests_get):
     latest_stable = get_latest_stable()
     assert latest_stable == "v1.31.6"
 
 
-@patch("util.k8s._url_get")
-def test_get_latest_releases_by_minor(mock_url_get):
-    mock_url_get.return_value = json.dumps(SAMPLE_TAGS)
+def test_get_latest_releases_by_minor(mock_requests_get):
     by_minor = get_latest_releases_by_minor()
     assert by_minor == {
         "1.33": "v1.33.0-alpha.0",
