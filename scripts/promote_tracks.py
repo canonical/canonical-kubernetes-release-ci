@@ -43,8 +43,8 @@ NEXT_RISK = RISK_LEVELS[1:] + [None]
 
 # Revisions stay at a certain risk level for some days before being promoted.
 DAYS_TO_STAY_IN_EDGE = 1
-DAYS_TO_STAY_IN_BETA = 3
-DAYS_TO_STAY_IN_CANDIDATE = 5
+DAYS_TO_STAY_IN_BETA = 1
+DAYS_TO_STAY_IN_CANDIDATE = 1
 
 # Path to the tox executable.
 TOX_PATH = (venv := os.getenv("VIRTUAL_ENV")) and Path(venv) / "bin/tox" or "tox"

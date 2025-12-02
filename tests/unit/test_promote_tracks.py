@@ -91,8 +91,8 @@ def _mock_k8s_versions(latest_stable: str = "v1.33.0"):
     "risk, next_risk, now",
     [
         ("edge", "beta", "2000-01-02"),
-        ("beta", "candidate", "2000-01-04"),
-        ("candidate", "stable", "2000-01-06"),
+        ("beta", "candidate", "2000-01-02"),
+        ("candidate", "stable", "2000-01-02"),
     ],
 )
 def test_risk_promotable(risk, next_risk, now):
@@ -121,7 +121,7 @@ def test_risk_not_yet_promotable_edge(risk, now):
 
 @pytest.mark.parametrize(
     "risk, now",
-    [("beta", "2000-01-03"), ("candidate", "2000-01-05")],
+    [("beta", "2000-01-01"), ("candidate", "2000-01-01")],
 )
 def test_risk_not_yet_promotable(risk, now):
     with freeze_time(now), _make_channel_map(MOCK_TRACK, risk), _mock_k8s_versions():
