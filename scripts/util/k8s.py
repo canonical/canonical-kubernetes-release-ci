@@ -1,18 +1,53 @@
-import json
 import re
-from typing import Dict, List
+from typing import Dict, Iterable, List
 
 import requests
 from packaging.version import InvalidVersion, Version
 
-K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags"
+# GitHub tags API is paginated (default 30 items/page). Requesting up to 100 reduces pages.
+# To fetch all tags you need to follow the 'Link' header and request subsequent pages.
+K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags?per_page=100"
 
 
-def _url_get(url: str) -> str:
-    """Make a GET request to the given URL and return the response text."""
-    response = requests.get(url, timeout=5)
-    response.raise_for_status()
-    return response.text
+def get_k8s_tags() -> Iterable[str]:
+    """Retrieve semantically ordered Kubernetes release tags from GitHub, following pagination.
+
+    Yields:
+        Release tag strings sorted from newest to oldest.
+
+    Raises:
+        ValueError: If no tags are retrieved.
+    """
+    url = K8S_TAGS_URL
+    tag_names: List[str] = []
+
+    while url:
+        resp = requests.get(url, timeout=5)
+        resp.raise_for_status()
+        page = resp.json()
+        if not page and not tag_names:
+            raise ValueError("No k8s tags retrieved.")
+        tag_names.extend([tag["name"] for tag in page])
+
+        link = resp.headers.get("Link", "")
+        if not link:
+            break
+
+        # parse Link header and follow 'next' if present
+        parsed = requests.utils.parse_header_links(link.rstrip(","))
+        next_url = None
+        for item in parsed:
+            if item.get("rel") == "next":
+                next_url = item.get("url")
+                break
+
+        if next_url:
+            url = next_url
+        else:
+            break
+
+    # Sort tags using packaging.version for semantic versioning
+    return sorted(tag_names, key=lambda x: Version(x), reverse=True)
 
 
 def is_stable_release(release: str) -> bool:
@@ -25,24 +60,6 @@ def is_stable_release(release: str) -> bool:
         True if the release is stable, False otherwise.
     """
     return "-" not in release
-
-
-def get_k8s_tags() -> List[str]:
-    """Retrieve semantically ordered Kubernetes release tags from GitHub.
-
-    Returns:
-        A list of release tag strings sorted from newest to oldest.
-
-    Raises:
-        ValueError: If no tags are retrieved.
-    """
-    response = _url_get(K8S_TAGS_URL)
-    tags_json = json.loads(response)
-    if not tags_json:
-        raise ValueError("No k8s tags retrieved.")
-    tag_names = [tag["name"] for tag in tags_json]
-    tag_names.sort(key=lambda x: Version(x), reverse=True)
-    return tag_names
 
 
 def get_latest_stable() -> str:
