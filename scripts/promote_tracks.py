@@ -148,7 +148,7 @@ def _build_upgrade_channels(
 
     # Only run tests on revision changes
     return [
-        [source, channel.name]
+        [source, f"{channel.name}@{channel.revision}"]
         for source in sorted(source_channels)
         if channel.revision != channels[source].revision
     ]
