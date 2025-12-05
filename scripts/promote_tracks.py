@@ -180,8 +180,10 @@ def create_proposal(args):
 
 def _create_arch_proposals(arch, channels: dict[str, Channel], args):
     proposals = []
+    select_tracks = getattr(args, "select_tracks", [])
     ignored_tracks = IGNORE_TRACKS + getattr(args, "ignore_tracks", [])
     ignored_arches = getattr(args, "ignore_arches", [])
+    
     days_to_stay_in_risk = {
         "edge": args.days_in_edge_risk,
         "beta": args.days_in_beta_risk,
@@ -207,15 +209,21 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             chan_log.debug("Skipping promoting stable")
             continue
 
-        matched_pattern = next(
-            (pattern for pattern in ignored_tracks if re.fullmatch(pattern, track)),
-            None,
-        )
-        if matched_pattern:
-            chan_log.debug(
-                f"Skipping ignored track '{track}' (matched pattern: '{matched_pattern}')"
+        if select_tracks:
+            track_selected = any(re.fullmatch(pattern, track) for pattern in select_tracks)
+            if not track_selected:
+                chan_log.debug(f"Skipping track '{track}' (not in selected tracks)")
+                continue
+        else:
+            matched_pattern = next(
+                (pattern for pattern in ignored_tracks if re.fullmatch(pattern, track)),
+                None,
             )
-            continue
+            if matched_pattern:
+                chan_log.debug(
+                    f"Skipping ignored track '{track}' (matched pattern: '{matched_pattern}')"
+                )
+                continue
 
         if arch in ignored_arches:
             chan_log.debug("Skipping ignored architecture")
@@ -362,6 +370,12 @@ def main():
         type=int,
         help="The number of days a revision stays in candidate risk",
         default=DAYS_TO_STAY_IN_CANDIDATE,
+    )
+    propose_args.add_argument(
+        "--select-tracks",
+        nargs="*",
+        help="Tracks to include when proposing revisions (takes precedence over --ignore-tracks)",
+        default=[],
     )
     propose_args.add_argument(
         "--ignore-tracks",
