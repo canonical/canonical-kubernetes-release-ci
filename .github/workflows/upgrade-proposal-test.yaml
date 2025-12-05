@@ -44,17 +44,17 @@ on:
         required: true
 jobs:
   test-proposal:
-    name: ${{ join(matrix.upgrade-channel, ' to ')}} on ${{ matrix.lxd-image}}
+    name: ${{ join(matrix.upgrade-channels, ' to ')}} on ${{ matrix.lxd-image}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     strategy:
       fail-fast: false
       matrix:
         # a unique runner for each lxd-image and upgrade-path
         lxd-image: ${{ fromJSON(inputs.lxd-images) }}
-        upgrade-channel: ${{ fromJSON(inputs.upgrade-channels) }}
+        upgrade-channels: ${{ fromJSON(inputs.upgrade-channels) }}
     env:
       ARCHITECTURE: ''
-      ARTIFACT_NAME: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channel, ',')}}-${{ matrix.lxd-image }}
+      ARTIFACT_NAME: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channels, ',')}}-${{ matrix.lxd-image }}
     steps:
       - name: Update ARTIFACT_NAME
         run: |
@@ -106,12 +106,12 @@ jobs:
             sudo ip6tables -I DOCKER-USER -o $i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
             set -e
           done
-      - name: Run promotion tests from ${{ join(matrix.upgrade-channel, ' to ') }} on ${{matrix.lxd-image}}@${{ env.ARCHITECTURE }}
+      - name: Run promotion tests from ${{ join(matrix.upgrade-channels, ' to ') }} on ${{matrix.lxd-image}}@${{ env.ARCHITECTURE }}
         env:
           TEST_SUBSTRATE: lxd
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
           TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
-          TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channel, ' ') }}
+          TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channels, ' ') }}
           # Upgrading from 1.30 is not supported.
           TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
           TEST_DEFAULT_WAIT_RETRIES: 200
@@ -141,9 +141,6 @@ jobs:
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     needs: test-proposal
     steps:
-    - uses: step-security/harden-runner@v2
-      with:
-        egress-policy: audit
     - uses: actions/checkout@v4
     - name: Install uv
       uses: astral-sh/setup-uv@v6

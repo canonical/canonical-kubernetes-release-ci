@@ -219,7 +219,17 @@ def promote_charm(charm_name, from_channel, to_channel):
     """Promote a charm from one channel to another."""
     try:
         subprocess.run(
-            ["/snap/bin/charmcraft", "promote", charm_name, from_channel, to_channel],
+            [
+                "/snap/bin/charmcraft",
+                "promote",
+                "--name",
+                charm_name,
+                "--from-channel",
+                from_channel,
+                "--to-channel",
+                to_channel,
+                "--yes",
+            ],
             check=True,
         )
     except subprocess.CalledProcessError as e:

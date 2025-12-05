@@ -22,8 +22,7 @@ log = logging.getLogger(__name__)
 # Currently this is tribal knowledge, eventually this should appear in the SQA docs:
 # https://canonical-weebl-tools.readthedocs-hosted.com/en/latest/products/index.html
 K8S_OPERATOR_PRODUCT_UUID = "432252b9-2041-4a9a-aece-37c2dbd54201"
-
-K8S_OPERATOR_TEST_PLAN_ID = "b171738f-96a4-42ab-bd91-b90e17b50c35"
+K8S_OPERATOR_TEST_PLAN_ID = "81ee45a7-c401-4b03-b92f-985c2816232f"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
 
 
@@ -37,6 +36,14 @@ class SQAFailureError(Exception):
     """Raised when an SQA command fails or returns unexpected results."""
 
     pass
+
+
+class BuildResult(StrEnum):
+    """Enum representing the result of a build."""
+
+    SUCCESS = "1"
+    FAILURE = "2"
+    UNKNOWN = "0"
 
 
 def get_series(base: str) -> str | None:
@@ -69,7 +76,7 @@ class DateTimeMixin(BaseModel):
     """Mixin to parse ISO formatted datetime strings into datetime objects."""
 
     created_at: datetime.datetime
-    updated_at: datetime.datetime
+    updated_at: Optional[datetime.datetime] = None
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod
@@ -78,16 +85,25 @@ class DateTimeMixin(BaseModel):
         return datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
 
 
-class Build(BaseModel):
+class Build(DateTimeMixin):
     """Represents a build in SQA."""
 
     uuid: UUID
     status: str
-    result: str
+    result: BuildResult
     addon_id: str
     arch: Optional[str] = None
     base: Optional[str] = None
     channel: Optional[str] = None
+
+    @field_validator("result", mode="before")
+    @classmethod
+    def fallback_unknown(cls, v: str) -> BuildResult:
+        """Fallback to UNKNOWN if the result value is invalid."""
+        try:
+            return BuildResult(v)
+        except ValueError:
+            return BuildResult.UNKNOWN
 
 
 class Addon(DateTimeMixin):

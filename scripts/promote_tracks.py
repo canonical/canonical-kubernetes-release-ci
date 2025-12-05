@@ -45,8 +45,8 @@ NEXT_RISK = RISK_LEVELS[1:] + [None]
 
 # Revisions stay at a certain risk level for some days before being promoted.
 DAYS_TO_STAY_IN_EDGE = 1
-DAYS_TO_STAY_IN_BETA = 3
-DAYS_TO_STAY_IN_CANDIDATE = 5
+DAYS_TO_STAY_IN_BETA = 1
+DAYS_TO_STAY_IN_CANDIDATE = 1
 
 # Path to the tox executable.
 TOX_PATH = (venv := os.getenv("VIRTUAL_ENV")) and Path(venv) / "bin/tox" or "tox"
@@ -155,7 +155,7 @@ def _build_upgrade_channels(channel: Channel, channels: dict[str, Channel]) -> l
 
     # Only run tests on revision changes
     return [
-        [source, channel.name]
+        [source, f"{channel.name}@{channel.revision}"]
         for source in sorted(source_channels)
         if channel.revision != channels[source].revision
     ]
