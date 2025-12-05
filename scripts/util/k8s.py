@@ -82,8 +82,11 @@ def get_latest_stable() -> str:
     raise ValueError("Couldn't find a stable release.")
 
 
-def get_latest_releases_by_minor() -> Dict[str, str]:
+def get_latest_releases_by_minor(after: Version | None = None) -> Dict[str, str]:
     """Map each minor Kubernetes version to its latest release tag.
+
+    Args:
+        after: The least supported track (inclusive).
 
     Returns:
         A dictionary mapping minor versions (e.g. '1.30') to the
@@ -98,6 +101,8 @@ def get_latest_releases_by_minor() -> Dict[str, str]:
         if not match:
             continue
         major, minor = match.groups()
+        if after and Version(f"{major}.{minor}.0") <= after:
+            continue
         key = f"{major}.{minor}"
         if key not in latest_by_minor:
             latest_by_minor[key] = tag
