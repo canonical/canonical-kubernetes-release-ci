@@ -25,14 +25,13 @@ jobs:
           ssh-key: ${{ secrets.BOT_SSH_KEY }}
       - name: Setup Python
         uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-      - run: pip install tox
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - run: uv tool install tox --with tox-uv
       - name: Determine outstanding pre-releases
         id: determine
         run: |
-          gitBranches=`tox -qq -e release -- get_outstanding_prereleases --as-git-branch`
+          gitBranches=`tox -qq -e runner -- ./scripts/k8s_release.py get_outstanding_prereleases --as-git-branch`
           echo "gitBranches=$gitBranches" >> "$GITHUB_OUTPUT"
   handle-pre-releases:
     name: Handle pre-releases

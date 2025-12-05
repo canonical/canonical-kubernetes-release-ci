@@ -1,10 +1,9 @@
-"""
-
-Scenarios:
+"""Test Scenarios.
 
 * First release for channel; no release run -> start release run
 * No new release in candidate channel -> no action
-* New release in candidate channel; release run in progress -> abort current testplan and start new release run
+* New release in candidate channel; release run in progress ->
+  abort current testplan and start new release run
 
 """
 
@@ -62,15 +61,19 @@ def test_no_release_run(mock_sqa, mock_charmhub):
     mock_args.charms = ["k8s"]
     charm_release.process_track("1.32", priority_generator, mock_args)
 
-    mock_sqa.start_release_test.assert_called_once_with("1.32/candidate",
-                                                        "22.04", "amd64",
-                                                        {"k8s_revision": "741"},
-                                                        "k8s-operator-k8s-741", 1)
+    mock_sqa.start_release_test.assert_called_once_with(
+        "1.32/candidate",
+        "22.04",
+        "amd64",
+        {"k8s_revision": "741"},
+        "k8s-operator-k8s-741",
+        1,
+    )
     mock_charmhub.promote_charm.assert_not_called()
 
 
 def test_no_new_release_no_action(mock_sqa, mock_charmhub):
-    """No new release in candidate channel -> no action"""
+    """No new release in candidate channel -> no action."""
     mock_charmhub.get_revision_matrix.side_effect = get_same_revision_matrix_side_effect
     mock_sqa.current_test_plan_instance_status.return_value = None
 

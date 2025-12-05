@@ -1,3 +1,5 @@
+"""Utility functions for interacting with Kubernetes release tags."""
+
 import re
 from typing import Dict, Iterable, List
 
@@ -17,6 +19,7 @@ def get_k8s_tags() -> Iterable[str]:
 
     Raises:
         ValueError: If no tags are retrieved.
+
     """
     url = K8S_TAGS_URL
     tag_names: List[str] = []
@@ -58,6 +61,7 @@ def is_stable_release(release: str) -> bool:
 
     Returns:
         True if the release is stable, False otherwise.
+
     """
     return "-" not in release
 
@@ -70,6 +74,7 @@ def get_latest_stable() -> str:
 
     Raises:
         ValueError: If no stable release is found.
+
     """
     for tag in get_k8s_tags():
         if is_stable_release(tag):
@@ -77,12 +82,16 @@ def get_latest_stable() -> str:
     raise ValueError("Couldn't find a stable release.")
 
 
-def get_latest_releases_by_minor() -> Dict[str, str]:
+def get_latest_releases_by_minor(after: Version | None = None) -> Dict[str, str]:
     """Map each minor Kubernetes version to its latest release tag.
+
+    Args:
+        after: The least supported track (inclusive).
 
     Returns:
         A dictionary mapping minor versions (e.g. '1.30') to the
         latest (pre-)release tag (e.g. 'v1.30.1').
+
     """
     latest_by_minor: Dict[str, str] = {}
     version_regex = re.compile(r"^v?(\d+)\.(\d+)\..+")
@@ -92,6 +101,8 @@ def get_latest_releases_by_minor() -> Dict[str, str]:
         if not match:
             continue
         major, minor = match.groups()
+        if after and Version(f"{major}.{minor}.0") <= after:
+            continue
         key = f"{major}.{minor}"
         if key not in latest_by_minor:
             latest_by_minor[key] = tag
@@ -100,8 +111,8 @@ def get_latest_releases_by_minor() -> Dict[str, str]:
 
 
 def get_all_releases_after(release) -> set[str]:
-    """
-    Get all releases after the input release.
+    """Get all releases after the input release.
+
     If the input release is invalid, the output will be empty.
     """
     releases: set[str] = set()

@@ -1,11 +1,54 @@
-[tool.bandit]
-exclude_dirs = ["tests"]
-skips = ["B404","B603"]
+[project]
+name = "canonical-kubernetes-release-ci"
+version = "0.0.0"
+description = "Canonical Kubernetes Release CI"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "actions_toolkit",
+    "jinja2<4",
+    "launchpadlib<2",
+    "packaging",
+    "pydantic~=2.10.6",
+    "requests~=2.32.4",
+    "semver~=3.0.2"
+]
+
+[dependency-groups]
+unit = [
+    "coverage[toml]>=7.6.1",
+    "freezegun",
+    "pytest>=8.3.4",
+    "pytest-sugar"
+]
+lint = [
+    "codespell",
+    "mypy",
+    "ruff",
+    "pydantic[mypy]",
+    "types-requests",
+    "types-PyYAML"
+]
+static = ["bandit"]
 
 [tool.mypy]
 ignore_missing_imports = true
 explicit_package_bases = true
 namespace_packages = true
 
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B404","B603"]
+
 [tool.codespell]
 skip = "env"
+
+# Linting tools configuration
+[tool.ruff]
+line-length = 99
+extend-exclude = ["__pycache__", "*.egg_info"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "C", "N", "D", "I001"]
+ignore = ["C901", "D103", "D203", "D213"]
+per-file-ignores = {"tests/*" = ["D100","D101","D102","D103","D104"]}

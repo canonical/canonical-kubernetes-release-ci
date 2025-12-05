@@ -1,5 +1,5 @@
 name: Inclusive Naming, Linting, and Unit Tests
-on: 
+on:
   - pull_request
 
 jobs:
@@ -16,9 +16,10 @@ jobs:
       TERM: xterm-256color
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install tox
+      - name: Setup Python
+        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - run: uv tool install tox --with tox-uv
       - name: Unit, Lint, Static Analysis
         run: tox -vve unit,lint,static -- --color=yes

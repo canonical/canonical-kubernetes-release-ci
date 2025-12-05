@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Promote revisions of the Canonical Kubernetes snap through the risk levels of each track."""
 
 import argparse
 import logging
@@ -11,13 +12,17 @@ from packaging.version import Version
 LOG = logging.getLogger(__name__)
 
 
-def get_outstanding_prereleases(as_git_branch: bool = False) -> List[str]:
+def get_outstanding_prereleases(
+    as_git_branch: bool = False, after: Version | None = None
+) -> List[str]:
     """Return outstanding K8s pre-releases.
 
     Args:
         as_git_branch: If True, return the git branch name for the pre-release.
+        after: The least supported track.
+
     """
-    latest_release = k8s.get_latest_releases_by_minor()
+    latest_release = k8s.get_latest_releases_by_minor(after=after)
     prereleases = []
     for tag in latest_release.values():
         if not k8s.is_stable_release(tag):
@@ -53,7 +58,7 @@ def get_obsolete_prereleases() -> List[str]:
 
 def get_prerelease_git_branch(prerelease: str):
     """Retrieve the name of the k8s-snap git branch for a given k8s pre-release."""
-    prerelease_re = r"v\d+\.\d+\.\d-(?:alpha|beta|rc)\.\d+"
+    prerelease_re = r"v\d+\.\d+\.\d+-(?:alpha|beta|rc)\.\d+"
     if not re.match(prerelease_re, prerelease):
         raise ValueError("Unexpected k8s pre-release name: %s", prerelease)
 
@@ -82,6 +87,9 @@ if __name__ == "__main__":
         dest="as_git_branch",
         help="If set, returns the git branch name of the pre-release instead of the tag.",
         action="store_true",
+    )
+    cmd.add_argument(
+        "--after", type=Version, nargs=1, default="1.32", help="Least supported track"
     )
 
     kwargs = vars(parser.parse_args())

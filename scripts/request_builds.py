@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Request all builds with launchpad recipes."""
 
 import argparse
 import logging
@@ -17,7 +18,7 @@ DESCRIPTION = """Request all builds with launchpad recipes"""
 
 
 def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
-    """Prepares all flavour branches to be built.
+    """Prepare all flavour branches to be built.
 
     * Ensure snap channels are available in the snapstore.
     * Ensure LP recipes are available in the snapstore.
@@ -49,9 +50,7 @@ def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
                     dry_msg = " (dry-run)" if args.dry_run else ""
                     LOG.info("  Requesting build for %s%s", recipe_name, dry_msg)
                     if not args.dry_run:
-                        recipe.requestBuilds(
-                            archive=archive, channels=channels, pocket=pocket
-                        )
+                        recipe.requestBuilds(archive=archive, channels=channels, pocket=pocket)
 
 
 def tip_branches(branches: Iterable[str]) -> Generator[str, None, None]:
@@ -70,12 +69,8 @@ def tip_branches(branches: Iterable[str]) -> Generator[str, None, None]:
 
 
 def main():
-    arg_parser = argparse.ArgumentParser(
-        Path(__file__).name, usage=USAGE, description=DESCRIPTION
-    )
-    arg_parser.add_argument(
-        "--branches", nargs="*", type=str, help="Specific branches to confirm"
-    )
+    arg_parser = argparse.ArgumentParser(Path(__file__).name, usage=USAGE, description=DESCRIPTION)
+    arg_parser.add_argument("--branches", nargs="*", type=str, help="Specific branches to confirm")
     args = util.setup_arguments(arg_parser)
     branches = args.branches
 

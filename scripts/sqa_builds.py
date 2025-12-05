@@ -1,8 +1,8 @@
-"""
-Script to run SQA builds for k8s-operator charms. This script is intended
-to generate single builds on SQA platform to provide internal insights to
-the team about possible failures on charms before releasing them to candidate.
+"""Script to run SQA builds for k8s-operator charms.
 
+This script is intended to generate single builds on SQA
+platform to provide internal insights to the team about possible failures
+on charms before releasing them to candidate.
 """
 
 import argparse
@@ -17,8 +17,12 @@ from util import charmhub, k8s, sqa, util
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
+
 class State(BaseModel):
+    """State of the builds."""
+
     builds: dict[str, sqa.Build]
+
 
 def get_state() -> State:
     pattern = re.compile(r"^k8s-build-(\d+)-([^-]+)-([^-]+)-([^-]+)-([^-]+)$")
@@ -36,9 +40,9 @@ def get_state() -> State:
             builds[revision] = build
     return State(builds=builds)
 
+
 def get_results(state: State) -> str:
     """Get the results of the builds for a specific track."""
-
     log.info("Getting results from previous test runs...")
     results: list[str] = []
 
@@ -47,7 +51,12 @@ def get_results(state: State) -> str:
         return ""
 
     for revision, details in state.builds.items():
-        results.append(f"Revision: {revision}, Status: {details.status}, Result: {details.result}, UUID: {details.uuid}, Arch: {details.arch}, Base: {details.base}, Channel: {details.channel}")
+        results.append(
+            f"Revision: {revision}, Status: {details.status}, "
+            f"Result: {details.result}, UUID: {details.uuid}, "
+            f"Arch: {details.arch}, Base: {details.base}, "
+            f"Channel: {details.channel}"
+        )
 
     return "\n".join(results)
 
@@ -64,18 +73,14 @@ def create_one_build(
         try:
             revision_matrix = charmhub.get_revision_matrix(charm, channel)
         except HTTPError:
-            log.exception(
-                f"failed to get revision matrix for charm {charm} channel {channel}"
-            )
+            log.exception(f"failed to get revision matrix for charm {charm} channel {channel}")
             return
 
         if not revision_matrix:
             log.exception(f"charm {charm} has no revisions on channel {channel}")
             return
 
-        log.info(
-            f"Revision matrix for {charm} on channel {channel} \n: {revision_matrix}"
-        )
+        log.info(f"Revision matrix for {charm} on channel {channel} \n: {revision_matrix}")
         k8s_operator_bundle.set(charm, revision_matrix)
 
     k8s_revision_matrix = k8s_operator_bundle.get("k8s")
@@ -94,27 +99,34 @@ def create_one_build(
 
     if not testable_revisions:
         log.info(
-            "The constraints resulted in no testable revisions or they are already tested. Skipping..."
+            "The constraints resulted in no testable revisions "
+            "or they are already tested. Skipping..."
         )
         return
 
     log.info(
-        f"Found {len(testable_revisions)} testable revision(s) for channel {channel}: {testable_revisions}"
+        f"Found {len(testable_revisions)} testable revision(s) "
+        f"for channel {channel}: {testable_revisions}"
     )
-    (base_in_test, arch_in_test) = random.choice(testable_revisions)        #nosec
+    (base_in_test, arch_in_test) = random.choice(testable_revisions)  # nosec
     log.info(f"Selected base {base_in_test} and arch {arch_in_test} for testing.")
 
     revisions = k8s_operator_bundle.get_revisions(arch_in_test, base_in_test)
-    version = f"k8s-build-{revisions.get("k8s_revision")}-{arch_in_test}-{base_in_test}-{track}-{risk_level}"
-    variables = util.patch_sqa_variables(track, {
-        "base": base_in_test,
-        "arch": arch_in_test,
-        "channel": channel,
-        "branch": f"release-{track}",
-        **revisions,
-    })
-
-
+    k8s_rev = revisions.get("k8s_revision")
+    if not k8s_rev:
+        log.error(f"No k8s revision found for arch {arch_in_test} and base {base_in_test}")
+        return
+    version = f"k8s-build-{k8s_rev}-{arch_in_test}-{base_in_test}-{track}-{risk_level}"
+    variables = util.patch_sqa_variables(
+        track,
+        {
+            "base": base_in_test,
+            "arch": arch_in_test,
+            "channel": channel,
+            "branch": f"release-{track}",
+            **revisions,
+        },
+    )
 
     log.info(f"Creating SQA build for {channel} for revisions: {revisions}")
     if not dry_run:
@@ -122,20 +134,16 @@ def create_one_build(
         build.base = base_in_test
         build.arch = arch_in_test
         build.channel = channel
-        state.builds[revisions.get("k8s_revision")] = build
+        state.builds[k8s_rev] = build
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Run a single SQA build and report the results from previuos runs."
     )
-    parser.add_argument(
-        "--arch", default="amd64", help="Architecture to run the builds on"
-    )
+    parser.add_argument("--arch", default="amd64", help="Architecture to run the builds on")
     parser.add_argument("--base", help="Base to run the builds on")
-    parser.add_argument(
-        "--risk-level", default="beta", help="Risk level to run the builds for"
-    )
+    parser.add_argument("--risk-level", default="beta", help="Risk level to run the builds for")
     parser.add_argument(
         "--dry-run", action="store_true", required=False, help="Dry run the  process"
     )

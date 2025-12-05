@@ -25,9 +25,7 @@ def branch_from_track():
         yield mocked
 
 
-def _create_channel(
-    track: str, risk: str, revision: int, date="2000-01-01", arch="amd64"
-):
+def _create_channel(track: str, risk: str, revision: int, date="2000-01-01", arch="amd64"):
     return {
         "channel": {
             "architecture": arch,
@@ -80,9 +78,7 @@ def _make_channel_map(track: str, risk: str, extra_risk: None | str = None):
 @contextlib.contextmanager
 def _mock_k8s_versions(latest_stable: str = "v1.33.0"):
     with (
-        mock.patch(
-            "util.k8s.get_latest_stable", new=mock.Mock(return_value=latest_stable)
-        ),
+        mock.patch("util.k8s.get_latest_stable", new=mock.Mock(return_value=latest_stable)),
     ):
         yield
 
@@ -165,9 +161,9 @@ def test_new_stable():
     # New stable release, we expect it to be promoted to all risk levels.
     exp_upgrade_channels = [[f"{MOCK_TRACK}/edge"]]
     exp_proposals = [
-        _expected_proposals(
-            MOCK_TRACK, "beta", "edge", 2, upgrade_channels=exp_upgrade_channels
-        )[0],
+        _expected_proposals(MOCK_TRACK, "beta", "edge", 2, upgrade_channels=exp_upgrade_channels)[
+            0
+        ],
         _expected_proposals(
             MOCK_TRACK, "candidate", "edge", 2, upgrade_channels=exp_upgrade_channels
         )[0],

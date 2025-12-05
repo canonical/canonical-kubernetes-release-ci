@@ -25,20 +25,20 @@ jobs:
     env:
       CHARMCRAFT_AUTH : ${{ secrets.CHARMCRAFT_AUTH }}
       LPCREDS_B64: ${{ secrets.LP_CREDS }}
+      LPCREDS: ./lp_creds
     steps:
       - name: Checking out repo
         uses: actions/checkout@v4
       - name: Setup Python
         uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-      - run: pip install -r scripts/requirements.txt
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - run: uv tool install tox --with tox-uv
       - name: Install tools
         run: |
           sudo snap install snapcraft --classic
-      - run: 'echo $LPCREDS_B64 | base64 --decode > lp_creds'
+      - run: 'echo $LPCREDS_B64 | base64 --decode > $LPCREDS'
         shell: bash
       - name: Ensure Tracks and Recipes
         run: |
-          LPCREDS=./lp_creds scripts/ensure_snap_builds.py --branch ${{ inputs.branches }}
+          tox -e runner -- scripts/ensure_snap_builds.py --branch ${{ inputs.branches }}

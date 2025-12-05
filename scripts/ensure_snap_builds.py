@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Ensure snap channels and LP recipes for the specified branch."""
 
 import argparse
 import logging
@@ -17,9 +18,7 @@ USAGE = f"./{Path(__file__).name} [options]"
 DESCRIPTION = """Ensure snap channels and LP recipes for the specified branch."""
 
 
-def ensure_snap_channels(
-    flavour: str, ver: semver.Version, tip: bool, dry_run: bool
-) -> list[str]:
+def ensure_snap_channels(flavour: str, ver: semver.Version, tip: bool, dry_run: bool) -> list[str]:
     """Ensure snap channels for the specified version."""
     channels = []
     if tip:
@@ -42,9 +41,7 @@ def ensure_snap_channels(
     # The channels (e.g. latest/edge/classic) will be opened automatically.
     # Ensure each track is tested only once.
     unique_tracks = {channel.split("/")[0] for channel in channels}
-    LOG.info(
-        "Ensure snap tracks %s for ver %s in snapstore", ",".join(unique_tracks), ver
-    )
+    LOG.info("Ensure snap tracks %s for ver %s in snapstore", ",".join(unique_tracks), ver)
     for track in unique_tracks:
         if not dry_run:
             snapstore.ensure_track(util.SNAP_NAME, track)
@@ -61,13 +58,11 @@ def ensure_lp_recipe(
     * Ensure LP recipes are building from correct branches.
     * Ensure LP recipes are pushing to the correct snap channels.
     """
-
     recipe_name = util.recipe_name(flavour, ver, tip)
 
     if flavour == "strict":
         LOG.warning(
-            "Disabling snap auto-build for 'strict' flavor, which is "
-            "currently unsupported."
+            "Disabling snap auto-build for 'strict' flavor, which is currently unsupported."
         )
         auto_build = False
     else:
@@ -107,7 +102,7 @@ def ensure_lp_recipe(
     lp_ref = lp_repo.getRefByPath(path=flavor_branch)
     lp_archive = client.archives.getByReference(reference="ubuntu")
     lp_snappy_series = client.snappy_serieses.getByName(name="16")
-    manifest = dict(
+    manifest = dict(  # noqa: C408
         auto_build=auto_build,
         auto_build_archive=lp_archive,
         auto_build_pocket="Updates",
@@ -166,7 +161,7 @@ def ensure_lp_recipe(
 
 
 def prepare_track_builds(branch: str, args: argparse.Namespace):
-    """Prepares all flavour branches to be built.
+    """Prepare all flavour branches to be built.
 
     * Ensure snap channels are available in the snapstore.
     * Ensure LP recipes are available in the snapstore.
@@ -193,12 +188,8 @@ def prepare_track_builds(branch: str, args: argparse.Namespace):
 
 
 def main():
-    arg_parser = argparse.ArgumentParser(
-        Path(__file__).name, usage=USAGE, description=DESCRIPTION
-    )
-    arg_parser.add_argument(
-        "--branches", nargs="*", type=str, help="Specific branches to confirm"
-    )
+    arg_parser = argparse.ArgumentParser(Path(__file__).name, usage=USAGE, description=DESCRIPTION)
+    arg_parser.add_argument("--branches", nargs="*", type=str, help="Specific branches to confirm")
     args = util.setup_arguments(arg_parser)
     branches = args.branches
 
