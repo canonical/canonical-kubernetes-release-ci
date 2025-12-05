@@ -46,7 +46,7 @@ def _create_channel(
 
 def _expected_proposals(track, next_risk, risk, revision, upgrade_channels=None):
     if not upgrade_channels:
-        upgrade_channels = [[f"{track}/stable", f"{track}/{risk}"]]
+        upgrade_channels = [[f"{track}/stable", f"{track}/{risk}@{revision}"]]
 
     return [
         {
