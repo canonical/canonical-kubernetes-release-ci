@@ -20,11 +20,13 @@ jobs:
       gitBranches: ${{ steps.determine.outputs.gitBranches }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ssh-key: ${{ secrets.BOT_SSH_KEY }}
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: '.python-version'
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - run: uv tool install tox --with tox-uv
