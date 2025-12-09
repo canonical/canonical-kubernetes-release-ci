@@ -151,7 +151,7 @@ jobs:
         SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
       run: |
           tox -e runner -- \
-          scripts/promote_tracks.py -- \
+          scripts/promote_tracks.py \
           ${{ inputs.dry_run && ' --dry-run' || '' }} \
           promote \
           --snap-revision="${{ inputs.revision }}" \
