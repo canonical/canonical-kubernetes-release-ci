@@ -62,9 +62,11 @@ jobs:
           ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
           echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
           echo "ARCHITECTURE=$(dpkg --print-architecture)" >> $GITHUB_ENV
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: '.python-version'
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - run: uv tool install tox --with tox-uv
@@ -141,7 +143,10 @@ jobs:
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     needs: test-proposal
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
+    - uses: actions/setup-python@v6
+      with:
+        python-version-file: '.python-version'
     - name: Install uv
       uses: astral-sh/setup-uv@v6
     - run: uv tool install tox --with tox-uv
