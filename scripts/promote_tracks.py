@@ -6,8 +6,8 @@ import dataclasses
 import datetime
 import json
 import logging
-import os
 import re
+import shlex
 import subprocess
 import sys
 from collections import defaultdict
@@ -47,9 +47,6 @@ NEXT_RISK = RISK_LEVELS[1:] + [None]
 DAYS_TO_STAY_IN_EDGE = 1
 DAYS_TO_STAY_IN_BETA = 1
 DAYS_TO_STAY_IN_CANDIDATE = 1
-
-# Path to the tox executable.
-TOX_PATH = (venv := os.getenv("VIRTUAL_ENV")) and Path(venv) / "bin/tox" or "tox"
 
 TRACK_RE = re.compile(r"^(\d+)\.(\d+)(\S*)$")
 
@@ -325,12 +322,23 @@ def release_revision(args):
 
 
 def execute_proposal_test(args):
-    cmd = f"{TOX_PATH} -e integration -- -k test_version_upgrades"
+    tox = shlex.split("tox -e integration -- -k test_version_upgrades")
+    try:
+        # Probe for tox by attempting to run it; FileNotFoundError means it's not installed.
+        subprocess.run(
+            tox[:1] + ["--version"],  # tox --version
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    except FileNotFoundError:
+        LOG.info("`tox` not found in PATH, skipping integration tests")
+        raise
 
     with repo.clone(util.SNAP_REPO, args.branch) as dir:
         if repo.ls_tree(dir, "tests/integration/tests/test_version_upgrades.py"):
             LOG.info("Running integration tests for %s", args.branch)
-            subprocess.run(cmd.split(), cwd=dir / "tests/integration", check=True)
+            subprocess.run(tox, cwd=dir / "tests/integration", check=True)
             return
 
 
