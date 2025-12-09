@@ -91,7 +91,7 @@ requires-dist = [
     { name = "pydantic", specifier = "~=2.10.6" },
     { name = "requests", specifier = "~=2.32.4" },
     { name = "semver", specifier = "~=3.0.2" },
-    { name = "tox" },
+    { name = "tox", specifier = "~=4.32.0" },
 ]
 
 [package.metadata.requires-dev]

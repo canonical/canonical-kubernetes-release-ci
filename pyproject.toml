@@ -12,7 +12,7 @@ dependencies = [
     "pydantic~=2.10.6",
     "requests~=2.32.4",
     "semver~=3.0.2",
-    "tox"
+    "tox~=4.32.0"
 ]
 
 [dependency-groups]
