@@ -1,4 +1,4 @@
-name: Upgrade Proposal Test
+name: Rerun Failed Jobs
 
 on:
   workflow_run:
@@ -12,11 +12,19 @@ permissions:
 
 jobs:
   on-failure:
+    name: Retry -- ${{ github.event.workflow_run.name }}
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    strategy:
+      matrix:
+        max-attempts: [3]
     steps:
-      - name: Retry Promotion Workflow ${{ github.event.workflow_run.name }}
-        if: ${{ github.event.workflow_run.run_attempt < 3 }}
+      - id: count
+        run: |
+          completed=${{github.event.workflow_run.run_attempt}}
+          echo "count=$((completed + 1))" >> $GITHUB_OUTPUT
+      - name: Retry job=${{github.event.workflow_run.id }} count=${{ steps.count.outputs.count }}
+        if: ${{ github.event.workflow_run.run_attempt < matrix.max-attempts }}
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -26,3 +34,6 @@ jobs:
               repo: context.repo.repo,
               run_id: context.payload.workflow_run.id
             });
+      - name: Retry job=${{github.event.workflow_run.id }} max count reached
+        if: ${{ github.event.workflow_run.run_attempt >= matrix.max-attempts }}
+        run: echo "Maximum retry attempts reached. Not retrying further."

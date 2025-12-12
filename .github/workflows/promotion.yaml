@@ -33,18 +33,12 @@ on:
         required: false
         description: |-
           A space separated list of architectures to ignore when proposing promotions
-      max_attempts:
-        type: number
-        default: 3
-        description: |-
-          The maximum number of attempts for the promotion workflow when run on schedule
 
   schedule:
     - cron: '0 0 * * *'  # Runs every midnight
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
   promotion-proposal:

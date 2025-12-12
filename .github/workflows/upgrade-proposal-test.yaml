@@ -48,6 +48,7 @@ jobs:
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         # a unique runner for each lxd-image and upgrade-path
         lxd-image: ${{ fromJSON(inputs.lxd-images) }}
