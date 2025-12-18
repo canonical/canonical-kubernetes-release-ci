@@ -22,6 +22,7 @@ import util.repo as repo
 import util.snapstore as snapstore
 import util.util as util
 from actions_toolkit import core
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 USAGE = "./promote_tracks.py"
 
@@ -49,6 +50,12 @@ DAYS_TO_STAY_IN_BETA = 1
 DAYS_TO_STAY_IN_CANDIDATE = 1
 
 TRACK_RE = re.compile(r"^(\d+)\.(\d+)(\S*)$")
+
+
+class ProposalTestError(Exception):
+    """Exception raised when a proposal test fails."""
+
+    pass
 
 
 class Hyphenized:
@@ -315,10 +322,24 @@ def release_revision(args):
     # to promote from edge to beta without manual confirmation.
     revision, channel = args.snap_revision, args.snap_channel
     LOG.info("Promote r%s to %s%s", revision, channel, args.dry_run and " (dry-run)" or "")
-    args.dry_run or subprocess.run(
+    if args.dry_run:
+        return
+    subprocess.run(
         ["/snap/bin/snapcraft", "release", util.SNAP_NAME, revision, channel],
         check=True,
     )
+
+
+def retry_proposal_test(args):
+    retrier = Retrying(
+        stop=stop_after_attempt(args.max_attempts),
+        retry=retry_if_exception_type(ProposalTestError),
+        wait=wait_fixed(1),
+        before=lambda state: core.start_group(f"Attempt {state.attempt_number}"),
+        after=lambda _: core.end_group(),
+        reraise=True,
+    )
+    retrier(execute_proposal_test, args)
 
 
 def execute_proposal_test(args):
@@ -336,10 +357,17 @@ def execute_proposal_test(args):
         raise
 
     with repo.clone(util.SNAP_REPO, args.branch) as dir:
-        if repo.ls_tree(dir, "tests/integration/tests/test_version_upgrades.py"):
+        test_path = Path("tests/integration/tests/test_version_upgrades.py")
+        if repo.ls_tree(dir, test_path):
             LOG.info("Running integration tests for %s", args.branch)
-            subprocess.run(tox, cwd=dir / "tests/integration", check=True)
+            try:
+                subprocess.run(tox, cwd=dir / "tests/integration", check=True)
+            except subprocess.CalledProcessError as e:
+                raise ProposalTestError(f"Integration tests failed: {e}") from e
             return
+        else:
+            LOG.error("No integration tests found for %s, failing", args.branch)
+            raise ProposalTestError("No integration tests found")
 
 
 def main():
@@ -385,7 +413,13 @@ def main():
 
     test_args = subparsers.add_parser("test", help="Run the test for a proposal")
     test_args.add_argument("--branch", required=True, help="The branch from which to test")
-    test_args.set_defaults(func=execute_proposal_test)
+    test_args.add_argument(
+        "--max-attempts",
+        type=int,
+        help="Maximum number of attempts for retrying failed tests",
+        default=3,
+    )
+    test_args.set_defaults(func=retry_proposal_test)
 
     promote_args = subparsers.add_parser("promote", help="Promote the proposed revisions")
     promote_args.add_argument(
