@@ -2,7 +2,7 @@ name: Rerun Failed Jobs
 
 on:
   workflow_run:
-    workflows: ["Promote tracks", "Test that failed jobs are retried"]
+    workflows: ["Promote tracks"]
     types:
     - completed
 
