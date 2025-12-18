@@ -1,0 +1,39 @@
+name: Rerun Failed Jobs
+
+on:
+  workflow_run:
+    workflows: ["Promote tracks", "Test that failed jobs are retried"]
+    types:
+    - completed
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  on-failure:
+    name: Retry -- ${{ github.event.workflow_run.name }}
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    strategy:
+      matrix:
+        max-attempts: [3]
+    steps:
+      - id: count
+        run: |
+          completed=${{github.event.workflow_run.run_attempt}}
+          echo "count=$((completed + 1))" >> $GITHUB_OUTPUT
+      - name: Retry job=${{github.event.workflow_run.id }} count=${{ steps.count.outputs.count }}
+        if: ${{ github.event.workflow_run.run_attempt < matrix.max-attempts }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.request('POST /repos/{owner}/{repo}/actions/runs/{run_id}/rerun-failed-jobs', {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: context.payload.workflow_run.id
+            });
+      - name: Retry job=${{github.event.workflow_run.id }} max count reached
+        if: ${{ github.event.workflow_run.run_attempt >= matrix.max-attempts }}
+        run: echo "Maximum retry attempts reached. Not retrying further."
