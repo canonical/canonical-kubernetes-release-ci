@@ -1,7 +1,9 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from util.k8s import (
+    _fetch_page,
     get_k8s_tags,
     get_latest_releases_by_minor,
     get_latest_stable,
@@ -19,17 +21,16 @@ SAMPLE_TAGS = [
 
 
 @pytest.fixture
-def mock_requests_get():
-    with patch("requests.get") as mock_get:
-        mock_response = mock_get.return_value
+def mock_fetch_page():
+    with patch("util.k8s._fetch_page") as mock_fetch:
+        mock_response = mock_fetch.return_value
         mock_response.headers = {}
-        mock_response.status_code = 200
         mock_response.json.return_value = SAMPLE_TAGS
 
-        yield mock_get
+        yield mock_fetch
 
 
-def test_get_k8s_tags(mock_requests_get):
+def test_get_k8s_tags(mock_fetch_page):
     tags = get_k8s_tags()
     assert tags == [
         "v1.33.0-alpha.0",
@@ -41,12 +42,60 @@ def test_get_k8s_tags(mock_requests_get):
     ]
 
 
-def test_get_latest_stable(mock_requests_get):
+def test_get_k8s_tags_with_github_token(mock_fetch_page):
+    with patch.dict("os.environ", {"GITHUB_TOKEN": "test_token"}):
+        tags = get_k8s_tags()
+        assert tags == [
+            "v1.33.0-alpha.0",
+            "v1.32.0-rc.0",
+            "v1.31.6",
+            "v1.31.5",
+            "v1.30.9",
+            "v1.29.10",
+        ]
+        # Verify that the token was passed in headers
+        mock_fetch_page.assert_called()
+        call_args = mock_fetch_page.call_args
+        headers = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]["headers"]
+        assert headers.get("Authorization") == "token test_token"
+
+
+def test_fetch_page_timeout():
+    """Test that _fetch_page uses a 30 second timeout."""
+    with patch("requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.headers = {}
+        mock_response.json.return_value = []
+        mock_get.return_value = mock_response
+
+        _fetch_page.retry.retry_state = None  # Reset retry state
+        _fetch_page("http://test.com", {})
+
+        mock_get.assert_called_once_with("http://test.com", headers={}, timeout=30)
+
+
+def test_fetch_page_retries_on_timeout():
+    """Test that _fetch_page retries on timeout."""
+    with patch("requests.get") as mock_get:
+        # Simulate timeout on first two calls, success on third
+        mock_get.side_effect = [
+            requests.exceptions.ReadTimeout(),
+            requests.exceptions.ReadTimeout(),
+            MagicMock(headers={}, json=lambda: []),
+        ]
+
+        _fetch_page.retry.retry_state = None  # Reset retry state
+        _fetch_page("http://test.com", {})
+
+        assert mock_get.call_count == 3
+
+
+def test_get_latest_stable(mock_fetch_page):
     latest_stable = get_latest_stable()
     assert latest_stable == "v1.31.6"
 
 
-def test_get_latest_releases_by_minor(mock_requests_get):
+def test_get_latest_releases_by_minor(mock_fetch_page):
     by_minor = get_latest_releases_by_minor()
     assert by_minor == {
         "1.33": "v1.33.0-alpha.0",

@@ -1,14 +1,40 @@
 """Utility functions for interacting with Kubernetes release tags."""
 
+import os
 import re
 from typing import Dict, Iterable, List
 
 import requests
 from packaging.version import InvalidVersion, Version
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 # GitHub tags API is paginated (default 30 items/page). Requesting up to 100 reduces pages.
 # To fetch all tags you need to follow the 'Link' header and request subsequent pages.
 K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags?per_page=100"
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    reraise=True,
+)
+def _fetch_page(url: str, headers: dict) -> requests.Response:
+    """Fetch a single page from the GitHub API with retry logic.
+
+    Args:
+        url: The URL to fetch.
+        headers: HTTP headers to include in the request.
+
+    Returns:
+        The response object.
+
+    Raises:
+        requests.exceptions.RequestException: If the request fails after retries.
+
+    """
+    resp = requests.get(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+    return resp
 
 
 def get_k8s_tags() -> Iterable[str]:
@@ -24,9 +50,14 @@ def get_k8s_tags() -> Iterable[str]:
     url = K8S_TAGS_URL
     tag_names: List[str] = []
 
+    # Use GITHUB_TOKEN for authentication if available
+    headers = {}
+    github_token = os.environ.get("GITHUB_TOKEN")
+    if github_token:
+        headers["Authorization"] = f"token {github_token}"
+
     while url:
-        resp = requests.get(url, timeout=5)
-        resp.raise_for_status()
+        resp = _fetch_page(url, headers)
         page = resp.json()
         if not page and not tag_names:
             raise ValueError("No k8s tags retrieved.")
