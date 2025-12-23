@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 from util.k8s import (
-    _fetch_page,
     get_k8s_tags,
     get_latest_releases_by_minor,
     get_latest_stable,
@@ -55,8 +54,8 @@ def test_get_k8s_tags_with_github_token(mock_fetch_page):
         ]
         # Verify that the token was passed in headers
         mock_fetch_page.assert_called()
-        call_args = mock_fetch_page.call_args
-        headers = call_args[0][1] if len(call_args[0]) > 1 else call_args[1]["headers"]
+        # Get the headers from the second positional argument
+        headers = mock_fetch_page.call_args.args[1]
         assert headers.get("Authorization") == "token test_token"
 
 
@@ -68,8 +67,10 @@ def test_fetch_page_timeout():
         mock_response.json.return_value = []
         mock_get.return_value = mock_response
 
-        _fetch_page.retry.retry_state = None  # Reset retry state
-        _fetch_page("http://test.com", {})
+        # Use the actual decorated function
+        from util.k8s import _fetch_page as fetch_page_func
+
+        fetch_page_func("http://test.com", {})
 
         mock_get.assert_called_once_with("http://test.com", headers={}, timeout=30)
 
@@ -84,8 +85,10 @@ def test_fetch_page_retries_on_timeout():
             MagicMock(headers={}, json=lambda: []),
         ]
 
-        _fetch_page.retry.retry_state = None  # Reset retry state
-        _fetch_page("http://test.com", {})
+        # Use the actual decorated function
+        from util.k8s import _fetch_page as fetch_page_func
+
+        fetch_page_func("http://test.com", {})
 
         assert mock_get.call_count == 3
 
