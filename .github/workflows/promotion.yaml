@@ -76,6 +76,8 @@ jobs:
             echo "ARGS=$ARGS" >> $GITHUB_ENV
       - name: Propose Promotions
         id: propose-promotions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tox -e runner -- scripts/promote_tracks.py propose --gh-action ${{ env.ARGS }}
   test-proposal:
