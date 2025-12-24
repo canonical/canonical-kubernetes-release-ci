@@ -18,12 +18,11 @@ K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags?per_page
     wait=wait_exponential(multiplier=1, min=1, max=10),
     reraise=True,
 )
-def _fetch_page(url: str, headers: dict) -> requests.Response:
+def _fetch_gh_page(url: str) -> requests.Response:
     """Fetch a single page from the GitHub API with retry logic.
 
     Args:
         url: The URL to fetch.
-        headers: HTTP headers to include in the request.
 
     Returns:
         The response object.
@@ -32,6 +31,10 @@ def _fetch_page(url: str, headers: dict) -> requests.Response:
         requests.exceptions.RequestException: If the request fails after retries.
 
     """
+    headers = {}
+    if github_token := os.environ.get("GITHUB_TOKEN"):
+        headers["Authorization"] = f"token {github_token}"
+
     resp = requests.get(url, headers=headers, timeout=30)
     resp.raise_for_status()
     return resp
@@ -50,14 +53,8 @@ def get_k8s_tags() -> Iterable[str]:
     url = K8S_TAGS_URL
     tag_names: List[str] = []
 
-    # Use GITHUB_TOKEN for authentication if available
-    headers = {}
-    github_token = os.environ.get("GITHUB_TOKEN")
-    if github_token:
-        headers["Authorization"] = f"token {github_token}"
-
     while url:
-        resp = _fetch_page(url, headers)
+        resp = _fetch_gh_page(url)
         page = resp.json()
         if not page and not tag_names:
             raise ValueError("No k8s tags retrieved.")

@@ -20,8 +20,8 @@ SAMPLE_TAGS = [
 
 
 @pytest.fixture
-def mock_fetch_page():
-    with patch("util.k8s._fetch_page") as mock_fetch:
+def mock_fetch_gh_page():
+    with patch("util.k8s._fetch_gh_page") as mock_fetch:
         mock_response = mock_fetch.return_value
         mock_response.headers = {}
         mock_response.json.return_value = SAMPLE_TAGS
@@ -29,7 +29,7 @@ def mock_fetch_page():
         yield mock_fetch
 
 
-def test_get_k8s_tags(mock_fetch_page):
+def test_get_k8s_tags(mock_fetch_gh_page):
     tags = get_k8s_tags()
     assert tags == [
         "v1.33.0-alpha.0",
@@ -41,26 +41,33 @@ def test_get_k8s_tags(mock_fetch_page):
     ]
 
 
-def test_get_k8s_tags_with_github_token(mock_fetch_page):
+def test_get_k8s_tags_with_github_token():
+    """Test that GITHUB_TOKEN is used when available."""
     with patch.dict("os.environ", {"GITHUB_TOKEN": "test_token"}):
-        tags = get_k8s_tags()
-        assert tags == [
-            "v1.33.0-alpha.0",
-            "v1.32.0-rc.0",
-            "v1.31.6",
-            "v1.31.5",
-            "v1.30.9",
-            "v1.29.10",
-        ]
-        # Verify that the token was passed in headers
-        mock_fetch_page.assert_called()
-        # Get the headers from the second positional argument
-        headers = mock_fetch_page.call_args.args[1]
-        assert headers.get("Authorization") == "token test_token"
+        with patch("requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.headers = {}
+            mock_response.json.return_value = SAMPLE_TAGS
+            mock_get.return_value = mock_response
+
+            tags = get_k8s_tags()
+            assert tags == [
+                "v1.33.0-alpha.0",
+                "v1.32.0-rc.0",
+                "v1.31.6",
+                "v1.31.5",
+                "v1.30.9",
+                "v1.29.10",
+            ]
+            # Verify that the token was passed in headers
+            mock_get.assert_called()
+            call_args = mock_get.call_args
+            headers = call_args.kwargs.get("headers", {})
+            assert headers.get("Authorization") == "token test_token"
 
 
-def test_fetch_page_timeout():
-    """Test that _fetch_page uses a 30 second timeout."""
+def test_fetch_gh_page_timeout():
+    """Test that _fetch_gh_page uses a 30 second timeout."""
     with patch("requests.get") as mock_get:
         mock_response = MagicMock()
         mock_response.headers = {}
@@ -68,15 +75,15 @@ def test_fetch_page_timeout():
         mock_get.return_value = mock_response
 
         # Use the actual decorated function
-        from util.k8s import _fetch_page as fetch_page_func
+        from util.k8s import _fetch_gh_page
 
-        fetch_page_func("http://test.com", {})
+        _fetch_gh_page("http://test.com")
 
         mock_get.assert_called_once_with("http://test.com", headers={}, timeout=30)
 
 
-def test_fetch_page_retries_on_timeout():
-    """Test that _fetch_page retries on timeout."""
+def test_fetch_gh_page_retries_on_timeout():
+    """Test that _fetch_gh_page retries on timeout."""
     with patch("requests.get") as mock_get:
         # Simulate timeout on first two calls, success on third
         mock_get.side_effect = [
@@ -86,19 +93,19 @@ def test_fetch_page_retries_on_timeout():
         ]
 
         # Use the actual decorated function
-        from util.k8s import _fetch_page as fetch_page_func
+        from util.k8s import _fetch_gh_page
 
-        fetch_page_func("http://test.com", {})
+        _fetch_gh_page("http://test.com")
 
         assert mock_get.call_count == 3
 
 
-def test_get_latest_stable(mock_fetch_page):
+def test_get_latest_stable(mock_fetch_gh_page):
     latest_stable = get_latest_stable()
     assert latest_stable == "v1.31.6"
 
 
-def test_get_latest_releases_by_minor(mock_fetch_page):
+def test_get_latest_releases_by_minor(mock_fetch_gh_page):
     by_minor = get_latest_releases_by_minor()
     assert by_minor == {
         "1.33": "v1.33.0-alpha.0",
