@@ -43,7 +43,7 @@ def get_state() -> State:
 
 
 def _result_sort(item: tuple[str, sqa.Build]) -> tuple[int | str, ...]:
-    """Sort results by status and revision."""
+    """Sort results by revision, status, and result name."""
     revision, details = item
     rev = int(revision)
     return (rev, details.status, details.result.name.title())
