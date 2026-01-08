@@ -99,8 +99,8 @@ jobs:
             {
               "attachments": [
                 {
-                  "fallback": "k8s-operator nightly SQA builds results",
-                  "title": "k8s-operator nightly SQA builds results - ${{ env.FORMATTED_DATE }}",
+                  "fallback": "k8s-operator nightly SQA test results",
+                  "title": "k8s-operator nightly SQA test results - ${{ env.FORMATTED_DATE }}",
                   "text": "${{ env.RESULTS_TEXT }}"
                 }
               ]

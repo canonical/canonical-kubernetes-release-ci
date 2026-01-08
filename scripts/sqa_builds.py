@@ -16,6 +16,7 @@ from util import charmhub, k8s, sqa, util
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
+TESTRUNS_URL = "https://solutions.qa.canonical.com/testruns/"
 
 
 class State(BaseModel):
@@ -41,6 +42,13 @@ def get_state() -> State:
     return State(builds=builds)
 
 
+def _result_sort(item: tuple[str, sqa.Build]) -> tuple[int | str, ...]:
+    """Sort results by status and revision."""
+    revision, details = item
+    rev = int(revision)
+    return (rev, details.status, details.result.name.title())
+
+
 def get_results(state: State) -> str:
     """Get the results of the builds for a specific track."""
     log.info("Getting results from previous test runs...")
@@ -50,10 +58,11 @@ def get_results(state: State) -> str:
         log.info("No state found, returning empty results.")
         return ""
 
-    for revision, details in state.builds.items():
+    for revision, details in sorted(state.builds.items(), key=_result_sort):
         results.append(
             f"Revision: {revision}, Status: {details.status}, "
-            f"Result: {details.result}, UUID: {details.uuid}, "
+            f"Result: {details.result.name.title()}, "
+            f"UUID: [{details.uuid}]({TESTRUNS_URL}{details.uuid}), "
             f"Arch: {details.arch}, Base: {details.base}, "
             f"Channel: {details.channel}"
         )
