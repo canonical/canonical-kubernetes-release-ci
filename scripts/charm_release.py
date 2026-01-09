@@ -128,7 +128,6 @@ def ensure_track_state(
     channel,
     bundle: charmhub.Bundle,
     dry_run: bool,
-    priority_generator: sqa.PriorityGenerator,
 ) -> TrackState:
     track_state = TrackState()
     for arch in bundle.get_archs():
@@ -145,7 +144,7 @@ def ensure_track_state(
             version = bundle.get_version(arch, base)
             if not version:
                 continue
-            priority = priority_generator.next_priority
+            priority = sqa.K8S_TESTING_DEFAULT_PRIORITY
             log.info(f"Checking if there is any TPIs for ({channel}, {arch}, {base}, {priority})")
             current_test_plan_instance_status = sqa.current_test_plan_instance_status(
                 channel, base, version
@@ -170,7 +169,7 @@ def ensure_track_state(
     return track_state
 
 
-def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -> ProcessState:
+def process_track(track: str, args) -> ProcessState:
     """Process the given track based on its current state."""
     dry_run: bool = args.dry_run
     bundle_charms: list[str] = args.charms
@@ -219,7 +218,7 @@ def process_track(track: str, priority_generator: sqa.PriorityGenerator, args) -
         return ProcessState.PROCESS_UNCHANGED
 
     try:
-        state = ensure_track_state(from_channel, k8s_operator_bundle, dry_run, priority_generator)
+        state = ensure_track_state(from_channel, k8s_operator_bundle, dry_run)
         log.info(f"Track {track} is in state: {state}")
 
         if state.empty:
@@ -298,9 +297,8 @@ def main():
     log.info(f"Starting the charms {args.charms} release process for: {tracks}")
 
     results = {}
-    priority_generator = sqa.PriorityGenerator(initial=5)
     for track in tracks:
-        process_state = process_track(track, priority_generator, args)
+        process_state = process_track(track, args)
         if process_state in [
             ProcessState.PROCESS_IN_PROGRESS,
             ProcessState.PROCESS_UNCHANGED,

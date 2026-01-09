@@ -7,7 +7,6 @@ import re
 import shlex
 import subprocess
 import tempfile
-import threading
 from enum import StrEnum
 from pathlib import Path
 from typing import Optional
@@ -24,6 +23,7 @@ log = logging.getLogger(__name__)
 K8S_OPERATOR_PRODUCT_UUID = "432252b9-2041-4a9a-aece-37c2dbd54201"
 K8S_OPERATOR_TEST_PLAN_ID = "81ee45a7-c401-4b03-b92f-985c2816232f"
 K8S_OPERATOR_TEST_PLAN_NAME = "CanonicalK8s"
+K8S_TESTING_DEFAULT_PRIORITY = 3
 
 
 class InvalidSQAInputError(Exception):
@@ -54,22 +54,6 @@ def get_series(base: str) -> str | None:
     }
 
     return base_series_map.get(base)
-
-
-class PriorityGenerator:
-    """PriorityGenerator is a counter to create priorities for new TPIs we create."""
-
-    def __init__(self, initial=0):
-        """Initialize the priority generator with an initial value."""
-        self.value = initial
-        self._lock = threading.Lock()
-
-    @property
-    def next_priority(self):
-        """Get the next priority value."""
-        with self._lock:
-            self.value += 1
-            return self.value
 
 
 class DateTimeMixin(BaseModel):
