@@ -121,6 +121,7 @@ class ProcessState(StrEnum):
     PROCESS_IN_PROGRESS = auto()
     PROCESS_FAILED = auto()
     PROCESS_CI_FAILED = auto()
+    PROCESS_CHARMCRAFT_ERROR = auto()
     PROCESS_UNCHANGED = auto()
 
 
@@ -244,7 +245,7 @@ def process_track(track: str, args) -> ProcessState:
         return ProcessState.PROCESS_CI_FAILED
     except charmhub.CharmcraftError:
         log.exception(f"process track {track} failed because of the Charmcraft")
-        return ProcessState.PROCESS_CI_FAILED
+        return ProcessState.PROCESS_CHARMCRAFT_ERROR
     except sqa.InvalidSQAInput:
         log.exception(
             f"process track {track} failed because of revision could not be extracted from version"
@@ -299,6 +300,9 @@ def main():
     results = {}
     for track in tracks:
         process_state = process_track(track, args)
+        if process_state == ProcessState.PROCESS_CHARMCRAFT_ERROR:
+            log.error(f"Charmcraft error for track {track}. Stopping the process.")
+            raise SystemExit(1)
         if process_state in [
             ProcessState.PROCESS_IN_PROGRESS,
             ProcessState.PROCESS_UNCHANGED,
