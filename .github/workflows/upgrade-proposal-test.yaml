@@ -109,6 +109,16 @@ jobs:
             sudo ip6tables -I DOCKER-USER -o $i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
             set -e
           done
+      - name: Pre-pull LXD image
+        shell: bash
+        run: |
+          # Pre-pull the LXD image to avoid redundant downloads during test execution
+          # and reduce network-related flakiness
+          echo "Pre-pulling LXD image: ${{ matrix.lxd-image }}"
+          sudo --user "$USER" --preserve-env --preserve-env=PATH -- \
+            lxc image copy images:${{ matrix.lxd-image }} local: --copy-aliases --auto-update || true
+          sudo --user "$USER" --preserve-env --preserve-env=PATH -- \
+            lxc image list
       - name: Run promotion tests from ${{ join(matrix.upgrade-channels, ' to ') }} on ${{matrix.lxd-image}}@${{ env.ARCHITECTURE }}
         env:
           TEST_SUBSTRATE: lxd
