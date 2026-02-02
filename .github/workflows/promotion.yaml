@@ -1,10 +1,6 @@
 name: Promote tracks
 
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/promotion.yaml'
-      - '.github/workflows/upgrade-proposal-test.yaml'
   workflow_dispatch:
     inputs:
       dry_run:
