@@ -91,6 +91,7 @@ jobs:
       branch: ${{ matrix.branch }}
       dry_run: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) || github.event_name == 'pull_request'}}
       lxd-images: ${{ toJson(matrix.lxd-images) }}
+      next-risk: ${{ matrix.next-risk }}
       proposal-name: ${{ matrix.name }}
       revision: ${{ matrix.revision }}
       runner-labels: ${{ toJson(matrix.runner-labels) }}

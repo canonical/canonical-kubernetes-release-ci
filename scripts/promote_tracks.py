@@ -330,7 +330,13 @@ def release_revision(args):
     )
 
 
-def retry_proposal_test(args):
+def run_e2e_test(args):
+    """Run e2e tests (no retry)."""
+    execute_e2e_test(args)
+
+
+def retry_upgrade_test(args):
+    """Retry version upgrade tests."""
     retrier = Retrying(
         stop=stop_after_attempt(args.max_attempts),
         retry=retry_if_exception_type(ProposalTestError),
@@ -339,11 +345,11 @@ def retry_proposal_test(args):
         after=lambda _: core.end_group(),
         reraise=True,
     )
-    retrier(execute_proposal_test, args)
+    retrier(execute_upgrade_test, args)
 
 
-def execute_proposal_test(args):
-    tox = shlex.split("tox -e integration -- -k test_version_upgrades")
+def _run_tox_tests(args, tox: list[str], test_path: Path):
+    """Run tox tests with the given command and test path."""
     try:
         # Probe for tox by attempting to run it; FileNotFoundError means it's not installed.
         subprocess.run(
@@ -357,7 +363,6 @@ def execute_proposal_test(args):
         raise
 
     with repo.clone(util.SNAP_REPO, args.branch) as dir:
-        test_path = Path("tests/integration/tests/test_version_upgrades.py")
         if repo.ls_tree(dir, test_path):
             LOG.info("Running integration tests for %s", args.branch)
             try:
@@ -368,6 +373,31 @@ def execute_proposal_test(args):
         else:
             LOG.error("No integration tests found for %s, failing", args.branch)
             raise ProposalTestError("No integration tests found")
+
+
+RISK_TO_TAG = {
+    "beta": "edge_to_beta",
+    "candidate": "beta_to_candidate",
+    "stable": "candidate_to_stable",
+}
+
+
+def execute_e2e_test(args):
+    """Execute e2e tests."""
+    tag = RISK_TO_TAG.get(args.next_risk)
+    if not tag:
+        raise ValueError(f"Unknown risk level '{args.next_risk}'")
+
+    tox = shlex.split(f"tox -e integration -- --tags {tag}")
+    test_path = Path("tests/integration/tests/")
+    _run_tox_tests(args, tox, test_path)
+
+
+def execute_upgrade_test(args):
+    """Execute version upgrade tests."""
+    tox = shlex.split("tox -e integration -- -k test_version_upgrades")
+    test_path = Path("tests/integration/tests/test_version_upgrades.py")
+    _run_tox_tests(args, tox, test_path)
 
 
 def main():
@@ -411,15 +441,28 @@ def main():
     )
     propose_args.set_defaults(func=create_proposal)
 
-    test_args = subparsers.add_parser("test", help="Run the test for a proposal")
-    test_args.add_argument("--branch", required=True, help="The branch from which to test")
-    test_args.add_argument(
+    test_parser = subparsers.add_parser("test", help="Run tests for a proposal")
+    test_subparsers = test_parser.add_subparsers(required=True)
+
+    test_e2e_args = test_subparsers.add_parser("e2e", help="Run e2e tests")
+    test_e2e_args.add_argument("--branch", required=True, help="The branch from which to test")
+    test_e2e_args.add_argument(
+        "--next-risk",
+        required=True,
+        help="The next risk level (e.g., beta, candidate, stable)",
+        dest="next_risk",
+    )
+    test_e2e_args.set_defaults(func=run_e2e_test)
+
+    test_upgrade_args = test_subparsers.add_parser("upgrade", help="Run version upgrade tests")
+    test_upgrade_args.add_argument("--branch", required=True, help="The branch from which to test")
+    test_upgrade_args.add_argument(
         "--max-attempts",
         type=int,
         help="Maximum number of attempts for retrying failed tests",
         default=3,
     )
-    test_args.set_defaults(func=retry_proposal_test)
+    test_upgrade_args.set_defaults(func=retry_upgrade_test)
 
     promote_args = subparsers.add_parser("promote", help="Promote the proposed revisions")
     promote_args.add_argument(
