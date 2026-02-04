@@ -189,7 +189,7 @@ def create_proposal(args):
     return proposals
 
 
-def _get_series(next_risk):
+def _get_series(next_risk: str) -> list[str]:
     """Get the series for the proposal based on the next risk level.
 
     Args:
