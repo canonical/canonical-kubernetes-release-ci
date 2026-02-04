@@ -54,13 +54,8 @@ jobs:
         lxd-image: ${{ fromJSON(inputs.lxd-images) }}
         upgrade-channels: ${{ fromJSON(inputs.upgrade-channels) }}
     env:
-      ARTIFACT_NAME: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channels, ',')}}-${{ matrix.lxd-image }}
+      TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
     steps:
-      - name: Update ARTIFACT_NAME
-        run: |
-          ARTIFACT_NAME=${ARTIFACT_NAME/:/-}    # replace : with -
-          ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
-          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
       - uses: actions/checkout@v6
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -78,7 +73,6 @@ jobs:
         env:
           TEST_SUBSTRATE: lxd
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
-          TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
           TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channels, ' ') }}
           # Upgrading from 1.30 is not supported.
           TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
@@ -90,16 +84,12 @@ jobs:
             ${{ inputs.dry_run && ' --dry-run' || '' }} \
             test \
             --branch="${{ inputs.branch }}"
-      - name: Prepare inspection reports
+      - name: Upload inspection reports
         if: failure()
-        run: |
-          tar -czvf ${{ github.workspace }}/inspection-reports.tar.gz -C ${{ github.workspace }} inspection-reports
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: failure()
+        uses: ./.github/actions/upload-inspection-reports
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ github.workspace }}/inspection-reports.tar.gz
+          artifact-name: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channels, ',')}}-${{ matrix.lxd-image }}
+          directory: ${{ env.TEST_INSPECTION_REPORTS_DIR }}
       - name: Debugging session
         if: ${{ failure() && github.event_name == 'pull_request' }}
         uses: canonical/action-tmate@main

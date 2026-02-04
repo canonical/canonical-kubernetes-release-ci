@@ -1,0 +1,31 @@
+name: Upload inspection reports
+description: 'Uploads inspection reports as an artifact'
+
+inputs:
+  artifact-name:
+    description: 'The name of the artifact to upload'
+    required: true
+  directory:
+    description: 'The directory containing the inspection reports to upload'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Sanitize artifact name
+      id: sanitize
+      shell: bash
+      run: |
+        ARTIFACT_NAME=${{ inputs.artifact-name }}
+        ARTIFACT_NAME=${ARTIFACT_NAME/:/-}    # replace : with -
+        ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
+        echo "artifact-name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+    - name: Prepare inspection reports
+      shell: bash
+      run: |
+        tar -czvf ${{ github.workspace }}/inspection-reports.tar.gz -C ${{ inputs.directory }} .
+    - name: Upload inspection reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.sanitize.outputs.artifact-name }}
+        path: ${{ github.workspace }}/inspection-reports.tar.gz
