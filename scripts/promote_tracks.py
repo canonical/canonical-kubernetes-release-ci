@@ -259,6 +259,20 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         )
         revision_in_stable = bool(channels.get(f"{track}/stable", EMPTY_CHANNEL).revision)
 
+        def _get_series(next_risk):
+            """Get the series for the proposal based on the next risk level.
+
+            Args:
+                next_risk: The next risk level to promote to.
+
+            Returns:
+                A list of series to include in the proposal.
+
+            """
+            if next_risk == "beta":
+                return SERIES
+            return SERIES[-1:]
+
         def _get_proposal(next_risk):
             final_channel = f"{track}/{next_risk}"
 
@@ -272,7 +286,7 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             proposal["snap-channel"] = final_channel
             proposal["name"] = f"{util.SNAP_NAME}-{track}/{next_risk}-{arch}"
             proposal["runner-labels"] = gh.arch_to_gh_labels(arch, self_hosted=True)
-            proposal["lxd-images"] = [f"ubuntu:{series}" for series in SERIES]
+            proposal["lxd-images"] = [f"ubuntu:{series}" for series in _get_series(next_risk)]
             return proposal
 
         # Whenever there's a new stable upstream release, we'll skip purgatory
