@@ -47,8 +47,8 @@ def _expected_proposals(track, next_risk, risk, revision, upgrade_channels=None)
     if not upgrade_channels:
         upgrade_channels = [[f"{track}/stable", f"{track}/{risk}@{revision}"]]
 
-    series = MOCK_SERIES if next_risk == "beta" else MOCK_SERIES[-1:]
-    images = [f"ubuntu:{series}" for series in series]
+    selected_series = MOCK_SERIES if next_risk == "beta" else MOCK_SERIES[-1:]
+    images = [f"ubuntu:{s}" for s in selected_series]
 
     return [
         {
