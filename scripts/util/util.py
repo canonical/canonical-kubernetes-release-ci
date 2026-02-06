@@ -99,6 +99,7 @@ def patch_sqa_variables(track: str, variables):
         if tuple(map(int, m.groups())) <= (1, 32):
             # For channels <= 1.32 we use underscore names
             variables["app"] = lambda name: name.replace("-", "_")
+            # Also, channels <=1.32 require a model name enclosed in quotes.
             variables["model"] = lambda name, _: f'"{name}"'
 
     return variables
