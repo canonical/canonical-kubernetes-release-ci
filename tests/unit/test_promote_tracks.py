@@ -8,6 +8,7 @@ from freezegun import freeze_time
 
 MOCK_BRANCH = "branchy-mcbranchface"
 MOCK_TRACK = "1.31-tracky"
+MOCK_SERIES = ["capricorn", "aquarius", "pisces"]
 args = argparse.Namespace(
     dry_run=False,
     loglevel="INFO",
@@ -46,11 +47,14 @@ def _expected_proposals(track, next_risk, risk, revision, upgrade_channels=None)
     if not upgrade_channels:
         upgrade_channels = [[f"{track}/stable", f"{track}/{risk}@{revision}"]]
 
+    selected_series = MOCK_SERIES if next_risk == "beta" else MOCK_SERIES[-1:]
+    images = [f"ubuntu:{s}" for s in selected_series]
+
     return [
         {
             "arch": "amd64",
             "branch": MOCK_BRANCH,
-            "lxd-images": ["ubuntu:20.04", "ubuntu:22.04", "ubuntu:24.04"],
+            "lxd-images": images,
             "name": f"k8s-1.31-tracky/{next_risk}-amd64",
             "next-risk": next_risk,
             "revision": revision,
@@ -91,6 +95,7 @@ def _mock_k8s_versions(latest_stable: str = "v1.33.0"):
         ("candidate", "stable", "2000-01-02"),
     ],
 )
+@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
 def test_risk_promotable(risk, next_risk, now):
     with (
         freeze_time(now),
@@ -153,6 +158,7 @@ def test_ignored_tracks(track, ignored_patterns, expected_ignored):
     )
 
 
+@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
 def test_new_stable():
     # In this scenario, the channel version matches the latest stable.
     with _make_channel_map(MOCK_TRACK, "edge"), _mock_k8s_versions("v1.31.0"):

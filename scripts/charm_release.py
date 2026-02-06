@@ -246,7 +246,7 @@ def process_track(track: str, args) -> ProcessState:
     except charmhub.CharmcraftError:
         log.exception(f"process track {track} failed because of the Charmcraft")
         return ProcessState.PROCESS_CHARMCRAFT_ERROR
-    except sqa.InvalidSQAInput:
+    except sqa.InvalidSQAInputError:
         log.exception(
             f"process track {track} failed because of revision could not be extracted from version"
         )
