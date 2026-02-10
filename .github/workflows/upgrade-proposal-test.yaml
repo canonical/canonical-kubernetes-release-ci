@@ -35,6 +35,10 @@ on:
         description: 'The channels to promote the snap to'
         required: true
         type: string
+      next-risk:
+        description: 'The next risk level (beta, candidate, stable)'
+        required: true
+        type: string
       upgrade-channels:
         description: 'The upgrade paths to test'
         required: true
@@ -43,7 +47,58 @@ on:
       SNAPSTORE_AUTH_TOKEN:
         required: true
 jobs:
-  test-proposal:
+  test-proposal-e2e:
+    name: E2E tests on ${{ matrix.lxd-image}}
+    runs-on: ${{ fromJson(inputs.runner-labels) }}
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        # a unique runner for each lxd-image
+        lxd-image: ${{ fromJSON(inputs.lxd-images) }}
+    env:
+      TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
+    steps:
+      - uses: actions/checkout@v6
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: '.python-version'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+      - run: uv tool install tox --with tox-uv
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.3
+        with:
+          channel: ${{ inputs.lxd-channel }}
+          bridges: "lxdbr0,dualstack-br0,ipv6-br0"
+      - name: Download snap revision ${{ inputs.revision }}
+        run: |
+          snap download k8s --revision=${{ inputs.revision }} --basename k8s
+      - name: Run e2e tests on ${{matrix.lxd-image}}
+        env:
+          TEST_SUBSTRATE: lxd
+          TEST_SNAP: ${{ github.workspace }}/k8s.snap
+          TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
+        run: |
+          tox -e runner -- \
+          scripts/promote_tracks.py \
+            ${{ inputs.dry_run && ' --dry-run' || '' }} \
+            test e2e \
+            --branch="${{ inputs.branch }}" \
+            --next-risk="${{ inputs.next-risk }}"
+      - name: Upload inspection reports
+        if: failure()
+        uses: ./.github/actions/upload-inspection-reports
+        with:
+          artifact-name: e2e-test-${{ inputs.proposal-name }}-${{ matrix.lxd-image }}
+          directory: ${{ env.TEST_INSPECTION_REPORTS_DIR }}
+      - name: Debugging session
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        uses: canonical/action-tmate@main
+        timeout-minutes: 10
+
+  test-proposal-upgrade:
     name: ${{ join(matrix.upgrade-channels, ' to ')}} on ${{ matrix.lxd-image}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     strategy:
@@ -54,15 +109,8 @@ jobs:
         lxd-image: ${{ fromJSON(inputs.lxd-images) }}
         upgrade-channels: ${{ fromJSON(inputs.upgrade-channels) }}
     env:
-      ARCHITECTURE: ''
-      ARTIFACT_NAME: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channels, ',')}}-${{ matrix.lxd-image }}
+      TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
     steps:
-      - name: Update ARTIFACT_NAME
-        run: |
-          ARTIFACT_NAME=${ARTIFACT_NAME/:/-}    # replace : with -
-          ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
-          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
-          echo "ARCHITECTURE=$(dpkg --print-architecture)" >> $GITHUB_ENV
       - uses: actions/checkout@v6
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -71,49 +119,15 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
       - run: uv tool install tox --with tox-uv
-      - name: Install lxd snap
-        shell: bash
-        run: |
-          # note(ben): Temporary workaround until snapd/snapcraft issue is resolved.
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update
-          sudo apt-get install xdelta3 --yes
-
-          if ! snap list lxd &> /dev/null; then
-            echo "Installing lxd snap"
-            sudo snap install lxd --channel ${{ inputs.lxd-channel }}
-          else
-            echo "lxd snap found, refreshing to specified channel"
-            sudo snap refresh lxd --channel ${{ inputs.lxd-channel }}
-          fi
-      - name: Initialize lxd
-        shell: bash
-        run: |
-          sudo lxd init --auto
-          sudo usermod --append --groups lxd $USER
-          # `newgrp` does not work in GitHub Actions; use `sudo --user` instead
-          # See https://github.com/actions/runner-images/issues/9932#issuecomment-2573170305
-          sudo --user "$USER" --preserve-env --preserve-env=PATH -- env -- lxc version
-      # Docker sets iptables rules that interfere with LXD.
-      # https://documentation.ubuntu.com/lxd/en/latest/howto/network_bridge_firewalld/#prevent-connectivity-issues-with-lxd-and-docker
-      - name: Apply Docker iptables workaround
-        shell: bash
-        run: |
-          set -x
-          bridges=('lxdbr0' 'dualstack-br0' 'ipv6-br0')
-          for i in ${bridges[@]}; do
-            set +e
-            sudo iptables  -I DOCKER-USER -i $i -j ACCEPT
-            sudo ip6tables -I DOCKER-USER -i $i -j ACCEPT
-            sudo iptables  -I DOCKER-USER -o $i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-            sudo ip6tables -I DOCKER-USER -o $i -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-            set -e
-          done
-      - name: Run promotion tests from ${{ join(matrix.upgrade-channels, ' to ') }} on ${{matrix.lxd-image}}@${{ env.ARCHITECTURE }}
+      - name: Setup LXD
+        uses: canonical/setup-lxd@v0.1.3
+        with:
+          channel: ${{ inputs.lxd-channel }}
+          bridges: "lxdbr0,dualstack-br0,ipv6-br0"
+      - name: Run promotion tests from ${{ join(matrix.upgrade-channels, ' to ') }} on ${{matrix.lxd-image}}
         env:
           TEST_SUBSTRATE: lxd
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
-          TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
           TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channels, ' ') }}
           # Upgrading from 1.30 is not supported.
           TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
@@ -123,18 +137,14 @@ jobs:
           tox -e runner -- \
           scripts/promote_tracks.py \
             ${{ inputs.dry_run && ' --dry-run' || '' }} \
-            test \
+            test upgrade \
             --branch="${{ inputs.branch }}"
-      - name: Prepare inspection reports
+      - name: Upload inspection reports
         if: failure()
-        run: |
-          tar -czvf ${{ github.workspace }}/inspection-reports.tar.gz -C ${{ github.workspace }} inspection-reports
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: failure()
+        uses: ./.github/actions/upload-inspection-reports
         with:
-          name: ${{ env.ARTIFACT_NAME }}
-          path: ${{ github.workspace }}/inspection-reports.tar.gz
+          artifact-name: promotion-test-${{ inputs.proposal-name }}-${{ join(matrix.upgrade-channels, ',')}}-${{ matrix.lxd-image }}
+          directory: ${{ env.TEST_INSPECTION_REPORTS_DIR }}
       - name: Debugging session
         if: ${{ failure() && github.event_name == 'pull_request' }}
         uses: canonical/action-tmate@main
@@ -142,7 +152,7 @@ jobs:
   promote-proposal:
     name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
-    needs: test-proposal
+    needs: [test-proposal-upgrade, test-proposal-e2e]
     steps:
     - uses: actions/checkout@v6
     - uses: actions/setup-python@v6
