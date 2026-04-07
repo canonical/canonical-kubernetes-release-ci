@@ -28,13 +28,13 @@ jobs:
       SQA_API_KEY: ${{ secrets.SQA_API_KEY }}
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version-file: '.python-version'
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
       - run: uv tool install tox --with tox-uv
       - run: sudo snap install weebl-tools --channel latest/stable
       - run: sudo apt-get install -y gettext
@@ -72,7 +72,7 @@ jobs:
             echo "has_results=true" >> "$GITHUB_OUTPUT"
           fi
       - name: Upload results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: results
           path: results.txt
@@ -84,7 +84,7 @@ jobs:
     steps:
       - name: Set current formatted date as env variable
         run: echo "FORMATTED_DATE=$(date +'%d/%m/%Y')" >> $GITHUB_ENV
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: results
       - name: Read results
@@ -92,7 +92,7 @@ jobs:
           ESCAPED=$(sed ':a;N;$!ba;s/\n/\\n/g' results.txt)
           echo "RESULTS_TEXT=$ESCAPED" >> $GITHUB_ENV
       - name: Notify Mattermost
-        uses: mattermost/action-mattermost-notify@master
+        uses: mattermost/action-mattermost-notify@d317daebed2a792679f68fd0248557a8d21d82b6 # master
         with:
           MATTERMOST_WEBHOOK_URL: ${{ secrets.MATTERMOST_BOT_WEBHOOK_URL }}
           PAYLOAD: |

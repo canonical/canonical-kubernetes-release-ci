@@ -59,16 +59,16 @@ jobs:
     env:
       TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version-file: '.python-version'
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
       - run: uv tool install tox --with tox-uv
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.3
+        uses: canonical/setup-lxd@a3c85fc6fb7fff43fcfeae87659e41a8f635b7dd # v0.1.3
         with:
           channel: ${{ inputs.lxd-channel }}
           bridges: "lxdbr0,dualstack-br0,ipv6-br0"
@@ -95,7 +95,7 @@ jobs:
           directory: ${{ env.TEST_INSPECTION_REPORTS_DIR }}
       - name: Debugging session
         if: ${{ failure() && github.event_name == 'pull_request' }}
-        uses: canonical/action-tmate@main
+        uses: canonical/action-tmate@bda82e73586a62bf621881aab872a527c8a46e2d # main
         timeout-minutes: 10
 
   test-proposal-upgrade:
@@ -111,16 +111,16 @@ jobs:
     env:
       TEST_INSPECTION_REPORTS_DIR: ${{ github.workspace }}/inspection-reports
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version-file: '.python-version'
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
       - run: uv tool install tox --with tox-uv
       - name: Setup LXD
-        uses: canonical/setup-lxd@v0.1.3
+        uses: canonical/setup-lxd@a3c85fc6fb7fff43fcfeae87659e41a8f635b7dd # v0.1.3
         with:
           channel: ${{ inputs.lxd-channel }}
           bridges: "lxdbr0,dualstack-br0,ipv6-br0"
@@ -147,19 +147,19 @@ jobs:
           directory: ${{ env.TEST_INSPECTION_REPORTS_DIR }}
       - name: Debugging session
         if: ${{ failure() && github.event_name == 'pull_request' }}
-        uses: canonical/action-tmate@main
+        uses: canonical/action-tmate@bda82e73586a62bf621881aab872a527c8a46e2d # main
         timeout-minutes: 10
   promote-proposal:
     name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
     needs: [test-proposal-upgrade, test-proposal-e2e]
     steps:
-    - uses: actions/checkout@v6
-    - uses: actions/setup-python@v6
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+    - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
       with:
         python-version-file: '.python-version'
     - name: Install uv
-      uses: astral-sh/setup-uv@v6
+      uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
     - run: uv tool install tox --with tox-uv
     - run: sudo snap install snapcraft --classic
     - name: Promote
