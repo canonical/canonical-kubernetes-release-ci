@@ -10,7 +10,7 @@ dependencies = [
     "launchpadlib<2",
     "packaging",
     "pydantic~=2.10.6",
-    "requests~=2.32.4",
+    "requests~=2.33.0",
     "semver~=3.0.2",
     "tenacity"
 ]
