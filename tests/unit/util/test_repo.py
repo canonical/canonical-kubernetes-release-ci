@@ -1,14 +1,26 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import util.repo as repo
 
 THIS_REPO = "https://github.com/canonical/canonical-kubernetes-release-ci.git"
 DEFAULT_BRANCH = "main"
+MOCK_SHA1 = "b62834117fda42ab47079d32ad62d8bdb7533132"
+MOCK_SHA1_SHORT = "b628341"
+
+MOCK_LS_REMOTE_SYMREF = f"ref: refs/heads/{DEFAULT_BRANCH}\tHEAD\n{MOCK_SHA1}\tHEAD"
+MOCK_LS_REMOTE_HEADS_MAIN = f"{MOCK_SHA1}\trefs/heads/{DEFAULT_BRANCH}"
+MOCK_LS_REMOTE_HEADS_ALL = (
+    f"{MOCK_SHA1}\trefs/heads/{DEFAULT_BRANCH}\n"
+    f"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\trefs/heads/other-branch"
+)
 
 
 def test_is_branch():
-    default = repo.default_branch(THIS_REPO)
-    assert repo.is_branch(THIS_REPO, default), "Default branch should undoubtedly exist"
+    with patch("util.repo._parse_output") as mock_parse:
+        mock_parse.side_effect = [MOCK_LS_REMOTE_SYMREF, MOCK_LS_REMOTE_HEADS_MAIN]
+        default = repo.default_branch(THIS_REPO)
+        assert repo.is_branch(THIS_REPO, default), "Default branch should undoubtedly exist"
 
 
 def test_clone():
@@ -22,9 +34,12 @@ def test_clone():
 
 
 def test_ls_branches():
-    default = repo.default_branch(THIS_REPO)
-    branches = repo.ls_branches(THIS_REPO)
-    assert default in branches, "Expected default branch in branches"
+    with patch("util.repo._parse_output") as mock_parse:
+        mock_parse.side_effect = [MOCK_LS_REMOTE_SYMREF, MOCK_LS_REMOTE_HEADS_ALL]
+        default = repo.default_branch(THIS_REPO)
+        branches = list(repo.ls_branches(THIS_REPO))
+        assert default in branches, "Expected default branch in branches"
+        assert "other-branch" in branches, "Expected other-branch in branches"
 
 
 def test_ls_tree():
