@@ -39,6 +39,7 @@ def test_ls_branches():
         default = repo.default_branch(THIS_REPO)
         branches = list(repo.ls_branches(THIS_REPO))
         assert default in branches, "Expected default branch in branches"
+        assert "other-branch" in branches, "Expected other-branch in branches"
 
 
 def test_ls_tree():
