@@ -62,11 +62,21 @@ def ensure_lp_recipe(
 
     if flavour == "strict":
         LOG.warning(
-            "Disabling snap auto-build for 'strict' flavor, which is currently unsupported."
+            "Disabling snap auto-build and store upload for 'strict' flavor, which is currently unsupported."
         )
         auto_build = False
+        store_upload = False
+    elif (ver.major, ver.minor) in util.DISABLED_TRACKS:
+        LOG.warning(
+            "Disabling snap auto-build and store upload for disabled track %s.%s.",
+            ver.major,
+            ver.minor,
+        )
+        auto_build = False
+        store_upload = False
     else:
         auto_build = True
+        store_upload = True
 
     if ver.prerelease:
         if flavour != "classic":
@@ -118,7 +128,7 @@ def ensure_lp_recipe(
         ],
         store_channels=channels,
         store_name=util.SNAP_NAME,
-        store_upload=True,
+        store_upload=store_upload,
         store_series=lp_snappy_series,
     )
     try:
