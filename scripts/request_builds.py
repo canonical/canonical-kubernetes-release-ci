@@ -33,10 +33,13 @@ def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
             version_file = dir / "build-scripts/components/kubernetes/version"
             branch_ver = version_file.read_text().strip()
             ver = semver.Version.parse(branch_ver.strip("v"))
-            flavors = util.flavors(dir)
 
             LOG.info("  Kubernetes version detected %s", branch_ver)
             tip = branch == "main"
+
+            if (ver.major, ver.minor) in util.DISABLED_TRACKS:
+                LOG.info("  Skipping disabled track %s.%s", ver.major, ver.minor)
+                continue
 
             flavors = util.flavors(dir)
             for flavor in flavors:
