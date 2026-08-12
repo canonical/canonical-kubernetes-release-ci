@@ -28,6 +28,5 @@ def arch_to_gh_labels(arch: str, self_hosted: bool = False) -> list[str]:
     if label := REPO_RUNNER_LABEL_MAP.get(arch):
         labels.append(label)
     if self_hosted:
-        labels.append("self-hosted")
-        labels.append(RUNNER_OS_LABEL)
+        labels.extend(["self-hosted", RUNNER_OS_LABEL])
     return labels
