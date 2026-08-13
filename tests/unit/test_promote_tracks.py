@@ -58,7 +58,7 @@ def _expected_proposals(track, next_risk, risk, revision, upgrade_channels=None)
             "name": f"k8s-1.31-tracky/{next_risk}-amd64",
             "next-risk": next_risk,
             "revision": revision,
-            "runner-labels": ["X64", "self-hosted", "jammy"],
+            "runner-labels": ["X64", "self-hosted", "jammy", "generic"],
             "snap-channel": f"{track}/{next_risk}",
             "track": track,
             "upgrade-channels": upgrade_channels,
