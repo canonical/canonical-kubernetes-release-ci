@@ -22,11 +22,14 @@ REPO_RUNNER_LABEL_MAP = {
 # upstream or we no longer test ubuntu:20.04 LXD images.
 RUNNER_OS_LABEL = "jammy"
 
+# Excludes FIPS/tiobe/private-endpoint specialty pools, which also match `jammy` but aren't general-purpose.
+RUNNER_FLAVOR_LABEL = "generic"
+
 
 def arch_to_gh_labels(arch: str, self_hosted: bool = False) -> list[str]:
     labels = []
     if label := REPO_RUNNER_LABEL_MAP.get(arch):
         labels.append(label)
     if self_hosted:
-        labels.extend(["self-hosted", RUNNER_OS_LABEL])
+        labels.extend(["self-hosted", RUNNER_OS_LABEL, RUNNER_FLAVOR_LABEL])
     return labels
