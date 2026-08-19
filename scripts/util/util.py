@@ -18,9 +18,6 @@ TIP_BRANCH = re.compile(
 )
 EXEC_TIMEOUT = 60
 
-# Tracks that should not be built or uploaded to the snap store.
-DISABLED_TRACKS: set[tuple[int, int]] = {(1, 36)}
-
 
 def flavors(path: str) -> list[str]:
     """Return a sorted list of available flavors in the given directory."""
