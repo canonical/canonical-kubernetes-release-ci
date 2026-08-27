@@ -39,7 +39,7 @@ The first stable release for each track requires blessing from SolQA and is prom
    where CEILING is one of edge, beta, or candidate.
 """
 
-SERIES = ["20.04", "22.04", "24.04"]
+SERIES = ["20.04", "22.04", "24.04", "26.04"]
 
 # Tracks matching a bare pattern are frozen (never promoted at any risk level).
 # Tracks matching a `(pattern, ceiling)` pair are capped at that risk level.

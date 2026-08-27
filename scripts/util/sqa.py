@@ -48,6 +48,7 @@ class BuildResult(StrEnum):
 
 def get_series(base: str) -> str | None:
     base_series_map = {
+        "26.04": "resolute",
         "24.04": "noble",
         "22.04": "jammy",
         "20.04": "focal",
