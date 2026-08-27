@@ -39,7 +39,14 @@ Generate these credentials using `charmcraft` for the next year
 
 ```bash
 charmcraft login --export charmhub-creds.dat --ttl 31536000
-cat charmhub-creds.dat | base64 -d | jq -r .v
+cat charmhub-creds.dat
 ```
 
-Write to repository secrets by taking the output and pushing to `CHARMCRAFT_AUTH`
+Write to repository secrets by taking the output and pushing to `CHARMCRAFT_AUTH`.
+
+Store the file contents verbatim, i.e. the base64 blob, exactly as
+`CHARMCRAFT_AUTH=$(cat charmhub-creds.dat)` would be used with the `charmcraft`
+CLI. `scripts/util/charmhub.py` base64-decodes the value and reads the macaroon
+from the `v` field of the resulting JSON. Storing a decoded macaroon
+(`base64 -d | jq -r .v`) instead leaves snap track creation failing with a
+base64 decode error.

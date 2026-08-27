@@ -29,5 +29,5 @@ def test_ls_branches():
 
 def test_ls_tree():
     this_path = Path(__file__).parent
-    paths = repo.ls_tree(this_path, "tests")
+    paths = repo.ls_tree(this_path, Path("tests"))
     assert paths, "Expected some paths"
