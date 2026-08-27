@@ -36,7 +36,7 @@ The script will only promote a revision to stable if there is already another re
 The first stable release for each track requires blessing from SolQA and is promoted manually.
 """
 
-SERIES = ["20.04", "22.04", "24.04"]
+SERIES = ["20.04", "22.04", "24.04", "26.04"]
 
 IGNORE_TRACKS = ["latest"]
 
