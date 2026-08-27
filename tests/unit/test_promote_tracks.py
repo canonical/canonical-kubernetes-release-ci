@@ -150,7 +150,7 @@ def test_latest_track(risk, now):
 
 
 @pytest.mark.parametrize(
-    "track, ignored_patterns, expected_ignored",
+    "track, ignored_entries, expected_ignored",
     [
         ("1.31", ["1.31", r"1\.\d+-classic"], True),  # Exact match
         ("1.31-classic", ["1\\.31", r"1\.\d+-classic"], True),  # Regex match
@@ -158,9 +158,9 @@ def test_latest_track(risk, now):
         ("1.31-classic", [], False),  # Nothing ignored
     ],
 )
-def test_ignored_tracks(track, ignored_patterns, expected_ignored):
+def test_ignore_tracks_frozen(track, ignored_entries, expected_ignored):
     with _make_channel_map(track, "edge"), _mock_k8s_versions():
-        args.ignore_tracks = ignored_patterns
+        args.ignore_tracks = [promote_tracks._parse_ignore_track(e) for e in ignored_entries]
         proposals = promote_tracks.create_proposal(args)
     assert (len(proposals) == 0) == expected_ignored, (
         f"Track '{track}' should {'be ignored' if expected_ignored else 'not be ignored'}"
@@ -168,22 +168,44 @@ def test_ignored_tracks(track, ignored_patterns, expected_ignored):
 
 
 @pytest.mark.parametrize(
-    "track, ignored_stable_patterns, expected_held_at_candidate",
+    "entry, expected",
     [
-        ("1.40-classic", [r"1\.40-classic"], True),  # Exact match
-        ("1.40-classic", [r"1\.\d+-classic"], True),  # Regex match
-        ("1.41-classic", [r"1\.40-classic"], False),  # No match
+        ("1.31", ("1.31", None)),
+        (r"1\.36-classic:candidate", (r"1\.36-classic", "candidate")),
+        ("latest:edge", ("latest", "edge")),
+        # A literal `:` from regex syntax (non-capturing group), not a ceiling
+        # suffix, must be left untouched.
+        (r"^1\.3(?:0|1)(-.*)?$", (r"^1\.3(?:0|1)(-.*)?$", None)),
+    ],
+)
+def test_parse_ignore_track(entry, expected):
+    assert promote_tracks._parse_ignore_track(entry) == expected
+
+
+def test_parse_ignore_track_rejects_invalid_ceiling():
+    with pytest.raises(argparse.ArgumentTypeError):
+        promote_tracks._parse_ignore_track("1.36-classic:stale")
+
+
+@pytest.mark.parametrize(
+    "track, ignored_entries, expected_held_at_candidate",
+    [
+        ("1.40-classic", ["1\\.40-classic:candidate"], True),  # Exact match
+        ("1.40-classic", [r"1\.\d+-classic:candidate"], True),  # Regex match
+        ("1.41-classic", ["1\\.40-classic:candidate"], False),  # No match
         ("1.40-classic", [], False),  # Nothing ignored
+        ("1.40-classic", [r"1\.\d+-classic:beta"], True),  # Stricter ceiling
+        ("1.40-classic", [r"1\.\d+-classic:edge"], True),  # Lowest ceiling
     ],
 )
 @mock.patch("promote_tracks.SERIES", MOCK_SERIES)
-def test_ignore_stable_tracks(track, ignored_stable_patterns, expected_held_at_candidate):
+def test_ignore_tracks_ceiling(track, ignored_entries, expected_held_at_candidate):
     with (
         freeze_time("2000-01-02"),
         _make_channel_map(track, "candidate", extra_risk="stable"),
         _mock_k8s_versions(),
     ):
-        args.ignore_stable_tracks = ignored_stable_patterns
+        args.ignore_tracks = [promote_tracks._parse_ignore_track(e) for e in ignored_entries]
         proposals = promote_tracks.create_proposal(args)
     expected_channels = [] if expected_held_at_candidate else [f"{track}/stable"]
     assert [p["snap-channel"] for p in proposals] == expected_channels, (
@@ -193,9 +215,33 @@ def test_ignore_stable_tracks(track, ignored_stable_patterns, expected_held_at_c
 
 
 @mock.patch("promote_tracks.SERIES", MOCK_SERIES)
-def test_ignore_stable_tracks_default_holds_1_36_classic():
+def test_ignore_tracks_ceiling_allows_promotion_up_to_ceiling():
+    # A track capped at beta must still be promoted edge->beta: reaching the
+    # ceiling exactly is allowed, only exceeding it is blocked.
+    with (
+        freeze_time("2000-01-02"),
+        _make_channel_map(MOCK_TRACK, "edge", extra_risk="stable"),
+        _mock_k8s_versions(),
+    ):
+        args.ignore_tracks = [promote_tracks._parse_ignore_track(r"1\.\d+-tracky:beta")]
+        proposals = promote_tracks.create_proposal(args)
+    assert proposals == _expected_proposals(MOCK_TRACK, "beta", "edge", 2)
+
+
+@mock.patch("promote_tracks.IGNORE_TRACKS", [(MOCK_TRACK, "candidate")])
+def test_ignore_tracks_most_restrictive_wins():
+    # A CLI freeze must win over a laxer built-in cap for the same track, even
+    # though built-in entries are scanned first.
+    with _make_channel_map(MOCK_TRACK, "edge"), _mock_k8s_versions():
+        args.ignore_tracks = [promote_tracks._parse_ignore_track(MOCK_TRACK)]
+        proposals = promote_tracks.create_proposal(args)
+    assert proposals == [], "Explicit freeze must not be loosened by a laxer built-in cap"
+
+
+@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+def test_ignore_tracks_default_holds_1_36_classic():
     # 1.36-classic is held at candidate unconditionally, even with no
-    # --ignore-stable-tracks argument (e.g. a manual workflow_dispatch run).
+    # --ignore-tracks argument (e.g. a manual workflow_dispatch run).
     with (
         freeze_time("2000-01-02"),
         _make_channel_map("1.36-classic", "candidate", extra_risk="stable"),
@@ -206,20 +252,20 @@ def test_ignore_stable_tracks_default_holds_1_36_classic():
 
 
 @mock.patch("promote_tracks.SERIES", MOCK_SERIES)
-def test_ignore_stable_tracks_does_not_block_lower_risks():
+def test_ignore_tracks_ceiling_does_not_block_lower_risks():
     # A track held at candidate must still be promoted through edge/beta/candidate.
     with (
         freeze_time("2000-01-02"),
         _make_channel_map(MOCK_TRACK, "beta", extra_risk="stable"),
         _mock_k8s_versions(),
     ):
-        args.ignore_stable_tracks = [r"1\.\d+-tracky"]
+        args.ignore_tracks = [promote_tracks._parse_ignore_track(r"1\.\d+-tracky:candidate")]
         proposals = promote_tracks.create_proposal(args)
     assert proposals == _expected_proposals(MOCK_TRACK, "candidate", "beta", 2)
 
 
 @mock.patch("promote_tracks.SERIES", MOCK_SERIES)
-def test_ignore_stable_tracks_holds_new_stable_bootstrap():
+def test_ignore_tracks_ceiling_holds_new_stable_bootstrap():
     # A track held at candidate must not take the "new stable upstream release"
     # fast path either: it must still be promoted one purgatory-gated step at a
     # time (edge->beta here), never batched straight through to stable.
@@ -227,7 +273,7 @@ def test_ignore_stable_tracks_holds_new_stable_bootstrap():
         _make_channel_map(MOCK_TRACK, "edge"),
         _mock_k8s_versions("v1.31.0"),
     ):
-        args.ignore_stable_tracks = [r"1\.\d+-tracky"]
+        args.ignore_tracks = [promote_tracks._parse_ignore_track(r"1\.\d+-tracky:candidate")]
         proposals = promote_tracks.create_proposal(args)
     exp_upgrade_channels = [[f"{MOCK_TRACK}/edge"]]
     assert proposals == _expected_proposals(

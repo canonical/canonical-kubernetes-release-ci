@@ -27,13 +27,11 @@ on:
         type: string
         required: false
         description: |-
-          A space separated list of tracks to ignore when proposing promotions
-      ignore_stable_tracks:
-        type: string
-        required: false
-        description: |-
-          A space separated list of track regexes (fullmatch) to keep at candidate,
-          never auto-promoting them to stable
+          A space separated list of tracks to ignore when proposing promotions. Each
+          entry is a fullmatch regex, optionally suffixed `:CEILING` (edge, beta, or
+          candidate) to cap a track at that risk level instead of freezing it entirely,
+          e.g. '1\.36-classic:candidate' holds a track at candidate, never promoting
+          it to stable.
       ignore_architectures:
         type: string
         required: false
@@ -72,7 +70,6 @@ jobs:
           ARGS="$ARGS --days-in-beta-risk ${{ inputs.days_in_beta_risk }}"
           ARGS="$ARGS --days-in-candidate-risk ${{ inputs.days_in_candidate_risk }}"
           ARGS="$ARGS --ignore-tracks ${{ inputs.ignore_tracks }}"
-          ARGS="$ARGS --ignore-stable-tracks ${{ inputs.ignore_stable_tracks }}"
           ARGS="$ARGS --ignore-arches ${{ inputs.ignore_architectures }}"
           echo "ARGS=$ARGS" >> $GITHUB_ENV
       - name: Assemble auto-promotion Arguments
