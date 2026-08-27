@@ -37,17 +37,14 @@ The first stable release for each track requires blessing from SolQA and is prom
 --ignore-tracks entries are `PATTERN` (frozen: never promoted at any risk level) or
    `PATTERN:CEILING` (capped: promoted normally up through CEILING, never past it),
    where CEILING is one of edge, beta, or candidate.
-By default the '1.36-classic' track is capped at candidate and never promoted to stable.
 """
 
 SERIES = ["20.04", "22.04", "24.04"]
 
 # Tracks matching a bare pattern are frozen (never promoted at any risk level).
-# Tracks matching a `(pattern, ceiling)` pair are capped at that risk level,
-# regardless of how the script is invoked (scheduled or manually dispatched).
+# Tracks matching a `(pattern, ceiling)` pair are capped at that risk level.
 IGNORE_TRACKS: list[tuple[str, Optional[str]]] = [
     ("latest", None),
-    (r"1\.36-classic", "candidate"),
 ]
 
 # The snap risk levels, used to find the next risk level for a revision.

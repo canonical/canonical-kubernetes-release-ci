@@ -239,19 +239,6 @@ def test_ignore_tracks_most_restrictive_wins():
 
 
 @mock.patch("promote_tracks.SERIES", MOCK_SERIES)
-def test_ignore_tracks_default_holds_1_36_classic():
-    # 1.36-classic is held at candidate unconditionally, even with no
-    # --ignore-tracks argument (e.g. a manual workflow_dispatch run).
-    with (
-        freeze_time("2000-01-02"),
-        _make_channel_map("1.36-classic", "candidate", extra_risk="stable"),
-        _mock_k8s_versions(),
-    ):
-        proposals = promote_tracks.create_proposal(args)
-    assert proposals == [], "1.36-classic must stay at candidate by default"
-
-
-@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
 def test_ignore_tracks_ceiling_does_not_block_lower_risks():
     # A track held at candidate must still be promoted through edge/beta/candidate.
     with (
