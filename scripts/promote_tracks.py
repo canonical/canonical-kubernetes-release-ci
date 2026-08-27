@@ -34,11 +34,18 @@ Each revision is promoted after being at a risk level for a certain amount of da
 The script will only promote a revision to stable if there is already another revision
    for this track at stable.
 The first stable release for each track requires blessing from SolQA and is promoted manually.
+--ignore-tracks entries are `PATTERN` (frozen: never promoted at any risk level) or
+   `PATTERN:CEILING` (capped: promoted normally up through CEILING, never past it),
+   where CEILING is one of edge, beta, or candidate.
 """
 
 SERIES = ["20.04", "22.04", "24.04"]
 
-IGNORE_TRACKS = ["latest"]
+# Tracks matching a bare pattern are frozen (never promoted at any risk level).
+# Tracks matching a `(pattern, ceiling)` pair are capped at that risk level.
+IGNORE_TRACKS: list[tuple[str, Optional[str]]] = [
+    ("latest", None),
+]
 
 # The snap risk levels, used to find the next risk level for a revision.
 RISK_LEVELS = ["edge", "beta", "candidate", "stable"]
@@ -50,6 +57,26 @@ DAYS_TO_STAY_IN_BETA = 1
 DAYS_TO_STAY_IN_CANDIDATE = 1
 
 TRACK_RE = re.compile(r"^(\d+)\.(\d+)(\S*)$")
+
+
+def _parse_ignore_track(entry: str) -> tuple[str, Optional[str]]:
+    """Parse a `--ignore-tracks` entry: `PATTERN` (frozen) or `PATTERN:CEILING`.
+
+    CEILING is the highest risk level (edge, beta, or candidate) the track may
+    ever be promoted to; the track is never promoted past it. A bare pattern
+    with no `:CEILING` suffix freezes the track at every risk level.
+    """
+    pattern, sep, ceiling = entry.rpartition(":")
+    if not sep or not ceiling.isalpha():
+        # No `:` at all, or the tail isn't a bare word (e.g. a `(?:...)` group
+        # inside the regex itself) — treat the whole entry as the pattern.
+        return entry, None
+    if ceiling not in RISK_LEVELS[:-1]:
+        raise argparse.ArgumentTypeError(
+            f"Invalid risk ceiling '{ceiling}' in --ignore-tracks entry '{entry}'; "
+            f"must be one of {RISK_LEVELS[:-1]}"
+        )
+    return pattern, ceiling
 
 
 class ProposalTestError(Exception):
@@ -213,9 +240,25 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         "beta": args.days_in_beta_risk,
         "candidate": args.days_in_candidate_risk,
     }
+    unrestricted = len(RISK_LEVELS) - 1  # index of "stable": no promotion cap
 
     def sorter(info: Channel):
         return (info.name, RISK_LEVELS.index(info.risk))
+
+    def risk_ceiling(track: str) -> tuple[int, Optional[str]]:
+        """Return (max risk index the track may reach, matched pattern).
+
+        -1 means the track is frozen (never promoted at any risk level).
+        `unrestricted` means the track has no cap (default, no match).
+        The most restrictive matching entry wins, so a built-in default can be
+        tightened by a `--ignore-tracks` argument but never loosened by one.
+        """
+        matches = [
+            ((-1 if ceiling is None else RISK_LEVELS.index(ceiling)), pattern)
+            for pattern, ceiling in ignored_tracks
+            if re.fullmatch(pattern, track)
+        ]
+        return min(matches, default=(unrestricted, None))
 
     latest_upstream_stable = k8s.get_latest_stable()
     for channel_info in sorted(channels.values(), key=sorter, reverse=True):
@@ -233,18 +276,21 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             chan_log.debug("Skipping promoting stable")
             continue
 
-        matched_pattern = next(
-            (pattern for pattern in ignored_tracks if re.fullmatch(pattern, track)),
-            None,
-        )
-        if matched_pattern:
-            chan_log.debug(
-                f"Skipping ignored track '{track}' (matched pattern: '{matched_pattern}')"
-            )
+        max_risk_index, matched = risk_ceiling(track)
+        if max_risk_index < 0:
+            chan_log.debug(f"Skipping ignored track '{track}' (matched pattern: '{matched}')")
             continue
 
         if arch in ignored_arches:
             chan_log.debug("Skipping ignored architecture")
+            continue
+
+        held = max_risk_index < unrestricted
+        if RISK_LEVELS.index(next_risk) > max_risk_index:
+            chan_log.info(
+                f"Skipping promotion of track '{track}' past {RISK_LEVELS[max_risk_index]} "
+                f"(matched pattern: '{matched}')"
+            )
             continue
 
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -294,10 +340,14 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         # and promote it to all risk levels, including stable.
         # We'll only do this for the latest upstream release
         # and channels that do not have a stable release yet.
+        # A track capped below stable never takes this fast path: since it
+        # never reaches stable, revision_in_stable would stay False forever,
+        # and this branch would otherwise re-fire on every new patch, skipping
+        # the beta/candidate purgatory soak entirely.
         if not revision_in_stable:
             k8s_version = channel_info.version
 
-            if new_patch_in_edge and k8s_version == latest_upstream_stable:
+            if new_patch_in_edge and k8s_version == latest_upstream_stable and not held:
                 chan_log.info(
                     f"{track}/edge contains a stable upstream release: {k8s_version}, "
                     "we'll skip purgatory and promote it to all risk levels "
@@ -445,7 +495,13 @@ def main():
     propose_args.add_argument(
         "--ignore-tracks",
         nargs="*",
-        help="Tracks to ignore when proposing revisions",
+        type=_parse_ignore_track,
+        help=(
+            "Tracks to ignore when proposing revisions. Each entry is a fullmatch regex, "
+            "optionally suffixed `:CEILING` (edge, beta, or candidate) to cap the track at "
+            "that risk level instead of freezing it entirely, e.g. "
+            r"'1\.36-classic:candidate' holds a track at candidate, never promoting to stable."
+        ),
         default=[],
     )
     propose_args.add_argument(
