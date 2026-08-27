@@ -20,6 +20,15 @@ args = argparse.Namespace(
 
 
 @pytest.fixture(autouse=True)
+def reset_args():
+    """Snapshot/restore the shared `args` Namespace so tests can't leak state."""
+    original = vars(args).copy()
+    yield
+    vars(args).clear()
+    vars(args).update(original)
+
+
+@pytest.fixture(autouse=True)
 def branch_from_track():
     with mock.patch("util.lp.branch_from_track") as mocked:
         mocked.return_value = MOCK_BRANCH
@@ -155,6 +164,74 @@ def test_ignored_tracks(track, ignored_patterns, expected_ignored):
         proposals = promote_tracks.create_proposal(args)
     assert (len(proposals) == 0) == expected_ignored, (
         f"Track '{track}' should {'be ignored' if expected_ignored else 'not be ignored'}"
+    )
+
+
+@pytest.mark.parametrize(
+    "track, ignored_stable_patterns, expected_held_at_candidate",
+    [
+        ("1.40-classic", [r"1\.40-classic"], True),  # Exact match
+        ("1.40-classic", [r"1\.\d+-classic"], True),  # Regex match
+        ("1.41-classic", [r"1\.40-classic"], False),  # No match
+        ("1.40-classic", [], False),  # Nothing ignored
+    ],
+)
+@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+def test_ignore_stable_tracks(track, ignored_stable_patterns, expected_held_at_candidate):
+    with (
+        freeze_time("2000-01-02"),
+        _make_channel_map(track, "candidate", extra_risk="stable"),
+        _mock_k8s_versions(),
+    ):
+        args.ignore_stable_tracks = ignored_stable_patterns
+        proposals = promote_tracks.create_proposal(args)
+    expected_channels = [] if expected_held_at_candidate else [f"{track}/stable"]
+    assert [p["snap-channel"] for p in proposals] == expected_channels, (
+        f"Track '{track}' should "
+        f"{'be held at candidate' if expected_held_at_candidate else 'be promoted to stable'}"
+    )
+
+
+@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+def test_ignore_stable_tracks_default_holds_1_36_classic():
+    # 1.36-classic is held at candidate unconditionally, even with no
+    # --ignore-stable-tracks argument (e.g. a manual workflow_dispatch run).
+    with (
+        freeze_time("2000-01-02"),
+        _make_channel_map("1.36-classic", "candidate", extra_risk="stable"),
+        _mock_k8s_versions(),
+    ):
+        proposals = promote_tracks.create_proposal(args)
+    assert proposals == [], "1.36-classic must stay at candidate by default"
+
+
+@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+def test_ignore_stable_tracks_does_not_block_lower_risks():
+    # A track held at candidate must still be promoted through edge/beta/candidate.
+    with (
+        freeze_time("2000-01-02"),
+        _make_channel_map(MOCK_TRACK, "beta", extra_risk="stable"),
+        _mock_k8s_versions(),
+    ):
+        args.ignore_stable_tracks = [r"1\.\d+-tracky"]
+        proposals = promote_tracks.create_proposal(args)
+    assert proposals == _expected_proposals(MOCK_TRACK, "candidate", "beta", 2)
+
+
+@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+def test_ignore_stable_tracks_holds_new_stable_bootstrap():
+    # A track held at candidate must not take the "new stable upstream release"
+    # fast path either: it must still be promoted one purgatory-gated step at a
+    # time (edge->beta here), never batched straight through to stable.
+    with (
+        _make_channel_map(MOCK_TRACK, "edge"),
+        _mock_k8s_versions("v1.31.0"),
+    ):
+        args.ignore_stable_tracks = [r"1\.\d+-tracky"]
+        proposals = promote_tracks.create_proposal(args)
+    exp_upgrade_channels = [[f"{MOCK_TRACK}/edge"]]
+    assert proposals == _expected_proposals(
+        MOCK_TRACK, "beta", "edge", 2, upgrade_channels=exp_upgrade_channels
     )
 
 

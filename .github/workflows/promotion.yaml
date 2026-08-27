@@ -28,6 +28,12 @@ on:
         required: false
         description: |-
           A space separated list of tracks to ignore when proposing promotions
+      ignore_stable_tracks:
+        type: string
+        required: false
+        description: |-
+          A space separated list of track regexes (fullmatch) to keep at candidate,
+          never auto-promoting them to stable
       ignore_architectures:
         type: string
         required: false
@@ -66,6 +72,7 @@ jobs:
           ARGS="$ARGS --days-in-beta-risk ${{ inputs.days_in_beta_risk }}"
           ARGS="$ARGS --days-in-candidate-risk ${{ inputs.days_in_candidate_risk }}"
           ARGS="$ARGS --ignore-tracks ${{ inputs.ignore_tracks }}"
+          ARGS="$ARGS --ignore-stable-tracks ${{ inputs.ignore_stable_tracks }}"
           ARGS="$ARGS --ignore-arches ${{ inputs.ignore_architectures }}"
           echo "ARGS=$ARGS" >> $GITHUB_ENV
       - name: Assemble auto-promotion Arguments

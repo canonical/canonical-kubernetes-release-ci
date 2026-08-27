@@ -34,11 +34,17 @@ Each revision is promoted after being at a risk level for a certain amount of da
 The script will only promote a revision to stable if there is already another revision
    for this track at stable.
 The first stable release for each track requires blessing from SolQA and is promoted manually.
+Tracks matching --ignore-stable-tracks are promoted up to candidate but held there,
+   never auto-promoted to stable.
 """
 
 SERIES = ["20.04", "22.04", "24.04"]
 
 IGNORE_TRACKS = ["latest"]
+
+# Tracks held at candidate: never auto-promoted to stable, regardless of how
+# the script is invoked (scheduled or manually dispatched).
+IGNORE_STABLE_TRACKS = [r"1\.36-classic"]
 
 # The snap risk levels, used to find the next risk level for a revision.
 RISK_LEVELS = ["edge", "beta", "candidate", "stable"]
@@ -207,6 +213,7 @@ def _get_series(next_risk: str) -> list[str]:
 def _create_arch_proposals(arch, channels: dict[str, Channel], args):
     proposals = []
     ignored_tracks = IGNORE_TRACKS + getattr(args, "ignore_tracks", [])
+    ignored_stable_tracks = IGNORE_STABLE_TRACKS + getattr(args, "ignore_stable_tracks", [])
     ignored_arches = getattr(args, "ignore_arches", [])
     days_to_stay_in_risk = {
         "edge": args.days_in_edge_risk,
@@ -216,6 +223,9 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
 
     def sorter(info: Channel):
         return (info.name, RISK_LEVELS.index(info.risk))
+
+    def matched_pattern(patterns: list[str], track: str) -> Optional[str]:
+        return next((pattern for pattern in patterns if re.fullmatch(pattern, track)), None)
 
     latest_upstream_stable = k8s.get_latest_stable()
     for channel_info in sorted(channels.values(), key=sorter, reverse=True):
@@ -233,18 +243,20 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             chan_log.debug("Skipping promoting stable")
             continue
 
-        matched_pattern = next(
-            (pattern for pattern in ignored_tracks if re.fullmatch(pattern, track)),
-            None,
-        )
-        if matched_pattern:
-            chan_log.debug(
-                f"Skipping ignored track '{track}' (matched pattern: '{matched_pattern}')"
-            )
+        if ignored := matched_pattern(ignored_tracks, track):
+            chan_log.debug(f"Skipping ignored track '{track}' (matched pattern: '{ignored}')")
             continue
 
         if arch in ignored_arches:
             chan_log.debug("Skipping ignored architecture")
+            continue
+
+        held_at_candidate = matched_pattern(ignored_stable_tracks, track)
+        if next_risk == "stable" and held_at_candidate:
+            chan_log.info(
+                f"Skipping promotion of track '{track}' to stable "
+                f"(matched --ignore-stable-tracks pattern: '{held_at_candidate}')"
+            )
             continue
 
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -294,10 +306,18 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         # and promote it to all risk levels, including stable.
         # We'll only do this for the latest upstream release
         # and channels that do not have a stable release yet.
+        # Tracks held at candidate never take this fast path: since they never
+        # reach stable, revision_in_stable would stay False forever, and this
+        # branch would otherwise re-fire on every new patch, skipping the
+        # beta/candidate purgatory soak entirely.
         if not revision_in_stable:
             k8s_version = channel_info.version
 
-            if new_patch_in_edge and k8s_version == latest_upstream_stable:
+            if (
+                new_patch_in_edge
+                and k8s_version == latest_upstream_stable
+                and not held_at_candidate
+            ):
                 chan_log.info(
                     f"{track}/edge contains a stable upstream release: {k8s_version}, "
                     "we'll skip purgatory and promote it to all risk levels "
@@ -446,6 +466,12 @@ def main():
         "--ignore-tracks",
         nargs="*",
         help="Tracks to ignore when proposing revisions",
+        default=[],
+    )
+    propose_args.add_argument(
+        "--ignore-stable-tracks",
+        nargs="*",
+        help="Track regexes (fullmatch) to keep at candidate; never auto-promote to stable",
         default=[],
     )
     propose_args.add_argument(
