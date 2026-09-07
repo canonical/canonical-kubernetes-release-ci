@@ -52,7 +52,6 @@ jobs:
     env:
       LPCREDS_B64: ${{ secrets.LP_CREDS }}
       LPCREDS: ./lp_creds
-      # Authenticate api.github.com k8s tag pagination (60 req/hr anonymous limit).
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ARGS: ''
     steps:
@@ -68,8 +67,6 @@ jobs:
       - name: Assemble Dispatch Arguments
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
-          # Pass dispatch inputs through env vars, never interpolate them into the
-          # script text: a crafted input would otherwise execute as shell code.
           DAYS_IN_EDGE_RISK: ${{ inputs.days_in_edge_risk }}
           DAYS_IN_BETA_RISK: ${{ inputs.days_in_beta_risk }}
           DAYS_IN_CANDIDATE_RISK: ${{ inputs.days_in_candidate_risk }}
