@@ -76,8 +76,8 @@ jobs:
         if: ${{ github.event_name != 'workflow_dispatch' }}
         run: |
             # Ignore the 1.30/31 and flavor tracks for auto-promotion. We don't support them.
-            # Hold 1.36-classic at candidate: validated manually, never auto-promote to stable.
-            ARGS="$ARGS --ignore-tracks ^1\.\d{2}$ ^1\.\d{2}-moonray$ ^1\.30(-.*)?$ ^1\.31(-.*)?$ 1\.36-classic:candidate "
+            # Hold 1.36-classic and 1.37-classic at candidate: validated manually, never auto-promote to stable.
+            ARGS="$ARGS --ignore-tracks ^1\.\d{2}$ ^1\.\d{2}-moonray$ ^1\.30(-.*)?$ ^1\.31(-.*)?$ 1\.36-classic:candidate 1\.37-classic:candidate "
             echo "ARGS=$ARGS" >> $GITHUB_ENV
       - name: Propose Promotions
         id: propose-promotions
