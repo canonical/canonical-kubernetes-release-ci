@@ -13,13 +13,7 @@ K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags?per_page
 
 
 def _request_headers() -> Dict[str, str]:
-    """Authenticate GitHub API requests when a token is available.
-
-    Fetching all k8s tags takes 10+ paginated requests; unauthenticated calls
-    are rate-limited to 60 req/hr per IP, which shared CI runners exhaust
-    easily. A token (e.g. the workflow's GITHUB_TOKEN) raises that limit
-    substantially.
-    """
+    """Authenticate via GITHUB_TOKEN if set (avoids the 60 req/hr anonymous limit)."""
     token = os.environ.get("GITHUB_TOKEN")
     return {"Authorization": f"Bearer {token}"} if token else {}
 
