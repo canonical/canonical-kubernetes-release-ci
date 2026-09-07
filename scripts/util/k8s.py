@@ -1,5 +1,6 @@
 """Utility functions for interacting with Kubernetes release tags."""
 
+import os
 import re
 from typing import Dict, Iterable, List
 
@@ -9,6 +10,12 @@ from packaging.version import InvalidVersion, Version
 # GitHub tags API is paginated (default 30 items/page). Requesting up to 100 reduces pages.
 # To fetch all tags you need to follow the 'Link' header and request subsequent pages.
 K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags?per_page=100"
+
+
+def _request_headers() -> Dict[str, str]:
+    """Authenticate via GITHUB_TOKEN if set (avoids the 60 req/hr anonymous limit)."""
+    token = os.environ.get("GITHUB_TOKEN")
+    return {"Authorization": f"Bearer {token}"} if token else {}
 
 
 def get_k8s_tags() -> Iterable[str]:
@@ -25,7 +32,7 @@ def get_k8s_tags() -> Iterable[str]:
     tag_names: List[str] = []
 
     while url:
-        resp = requests.get(url, timeout=5)
+        resp = requests.get(url, headers=_request_headers(), timeout=5)
         resp.raise_for_status()
         page = resp.json()
         if not page and not tag_names:
