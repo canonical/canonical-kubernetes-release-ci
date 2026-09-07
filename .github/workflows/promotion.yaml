@@ -65,12 +65,20 @@ jobs:
       - run: 'echo $LPCREDS_B64 | base64 --decode > lp_creds'
       - name: Assemble Dispatch Arguments
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          # Pass dispatch inputs through env vars, never interpolate them into the
+          # script text: a crafted input would otherwise execute as shell code.
+          DAYS_IN_EDGE_RISK: ${{ inputs.days_in_edge_risk }}
+          DAYS_IN_BETA_RISK: ${{ inputs.days_in_beta_risk }}
+          DAYS_IN_CANDIDATE_RISK: ${{ inputs.days_in_candidate_risk }}
+          IGNORE_TRACKS: ${{ inputs.ignore_tracks }}
+          IGNORE_ARCHES: ${{ inputs.ignore_architectures }}
         run: |
-          ARGS="$ARGS --days-in-edge-risk ${{ inputs.days_in_edge_risk }}"
-          ARGS="$ARGS --days-in-beta-risk ${{ inputs.days_in_beta_risk }}"
-          ARGS="$ARGS --days-in-candidate-risk ${{ inputs.days_in_candidate_risk }}"
-          ARGS="$ARGS --ignore-tracks ${{ inputs.ignore_tracks }}"
-          ARGS="$ARGS --ignore-arches ${{ inputs.ignore_architectures }}"
+          ARGS="$ARGS --days-in-edge-risk $DAYS_IN_EDGE_RISK"
+          ARGS="$ARGS --days-in-beta-risk $DAYS_IN_BETA_RISK"
+          ARGS="$ARGS --days-in-candidate-risk $DAYS_IN_CANDIDATE_RISK"
+          ARGS="$ARGS --ignore-tracks $IGNORE_TRACKS"
+          ARGS="$ARGS --ignore-arches $IGNORE_ARCHES"
           echo "ARGS=$ARGS" >> $GITHUB_ENV
       - name: Assemble auto-promotion Arguments
         if: ${{ github.event_name != 'workflow_dispatch' }}
