@@ -52,6 +52,9 @@ jobs:
     env:
       LPCREDS_B64: ${{ secrets.LP_CREDS }}
       LPCREDS: ./lp_creds
+      # Authenticate api.github.com calls (k8s tag pagination); the
+      # unauthenticated 60 req/hr per-IP limit is exhausted on shared runners.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ARGS: ''
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

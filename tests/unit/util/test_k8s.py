@@ -41,6 +41,21 @@ def test_get_k8s_tags(mock_requests_get):
     ]
 
 
+def test_get_k8s_tags_authenticates_with_github_token(mock_requests_get, monkeypatch):
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    get_k8s_tags()
+    headers = mock_requests_get.call_args.kwargs["headers"]
+    assert headers == {"Authorization": "Bearer test-token"}
+
+
+def test_get_k8s_tags_without_token_sends_no_auth(mock_requests_get, monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    get_k8s_tags()
+    headers = mock_requests_get.call_args.kwargs["headers"]
+    assert headers == {}
+
+
 def test_get_latest_stable(mock_requests_get):
     latest_stable = get_latest_stable()
     assert latest_stable == "v1.31.6"
