@@ -20,7 +20,7 @@ def _request_headers() -> Dict[str, str]:
     easily. A token (e.g. the workflow's GITHUB_TOKEN) raises that limit
     substantially.
     """
-    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    token = os.environ.get("GITHUB_TOKEN")
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 

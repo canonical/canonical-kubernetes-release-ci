@@ -50,7 +50,6 @@ def test_get_k8s_tags_authenticates_with_github_token(mock_requests_get, monkeyp
 
 def test_get_k8s_tags_without_token_sends_no_auth(mock_requests_get, monkeypatch):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.delenv("GH_TOKEN", raising=False)
     get_k8s_tags()
     headers = mock_requests_get.call_args.kwargs["headers"]
     assert headers == {}
