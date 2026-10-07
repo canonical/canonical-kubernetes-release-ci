@@ -1,0 +1,44 @@
+name: Manual promote (one-off)
+
+on:
+  workflow_dispatch:
+    inputs:
+      snap-revision:
+        description: 'The snap revision to promote'
+        required: true
+        type: string
+      snap-channel:
+        description: 'The channel to promote to'
+        required: true
+        type: string
+      dry-run:
+        description: 'If true, log only, do not actually release'
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: Promote ${{ inputs.snap-revision }} to ${{ inputs.snap-channel }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version-file: '.python-version'
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+      - run: uv tool install tox --with tox-uv
+      - run: sudo snap install snapcraft --classic
+      - name: Promote
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
+        run: |
+          tox -e runner -- \
+          scripts/promote_tracks.py \
+          ${{ inputs.dry-run && ' --dry-run' || '' }} \
+          promote \
+          --snap-revision="${{ inputs.snap-revision }}" \
+          --snap-channel="${{ inputs.snap-channel }}"
