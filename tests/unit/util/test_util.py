@@ -51,3 +51,11 @@ def test_setup_logging(mock_logger):
     mock_args = argparse.Namespace(dry_run=False, loglevel="INFO")
     util.setup_logging(mock_args)
     mock_logger.root.setLevel.assert_called_once_with(level="INFO")
+
+
+def test_disabled_tracks_is_a_set_of_version_tuples():
+    # Regression test: ensure_snap_builds.py and request_builds.py both do
+    # `(ver.major, ver.minor) in util.DISABLED_TRACKS`, which raises
+    # AttributeError if the constant is ever removed instead of emptied.
+    assert isinstance(util.DISABLED_TRACKS, set)
+    assert (1, 36) not in util.DISABLED_TRACKS
