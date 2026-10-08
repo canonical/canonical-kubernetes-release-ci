@@ -51,3 +51,30 @@ def test_create_client_no_creds():
     with pytest.raises(ValueError, match="No launchpad credentials found"):
         lp.client()
     assert lp.client.cache_info().misses == 2, "Expected a cache miss"
+
+
+@mock.patch("util.lp.client")
+def test_snap_recipe_found(mock_client):
+    # Regression test: snap_recipe() previously called getByName() without
+    # returning its result, so callers (e.g. request_builds.py) always saw
+    # None even when the recipe existed, silently skipping rebuild requests.
+    mock_recipe = mock.Mock()
+    mock_client.return_value.snaps.getByName.return_value = mock_recipe
+    owner = mock.Mock()
+
+    result = lp.snap_recipe(owner, "k8s-snap-1.38-classic")
+
+    assert result is mock_recipe
+    mock_client.return_value.snaps.getByName.assert_called_once_with(
+        owner=owner, name="k8s-snap-1.38-classic"
+    )
+
+
+@mock.patch("util.lp.client")
+def test_snap_recipe_not_found(mock_client):
+    mock_client.return_value.snaps.getByName.side_effect = lp.NotFound(None, b"")
+    owner = mock.Mock(name="owner")
+
+    result = lp.snap_recipe(owner, "k8s-snap-1.38-classic")
+
+    assert result is None
