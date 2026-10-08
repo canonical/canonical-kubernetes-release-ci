@@ -1,5 +1,6 @@
 import argparse
 import unittest.mock as mock
+from pathlib import Path
 
 import semver
 import util.util as util
@@ -12,7 +13,7 @@ def test_flavors(mock_ls_tree):
         "build-scripts/patches/flavor2/patch2",
     ]
     expected = ["classic", "flavor1", "flavor2"]
-    result = util.flavors("some_dir")
+    result = util.flavors(Path("some_dir"))
     assert result == expected
 
 
