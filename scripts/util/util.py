@@ -16,6 +16,9 @@ SNAP_REPO: str = "https://github.com/canonical/k8s-snap.git/"
 TIP_BRANCH = re.compile(
     r"^(?:main)|^(?:release-\d+\.\d+)$|^(?:autoupdate\/v\d+\.\d+\.\d+-(?:alpha|beta|rc))$"
 )
+
+# Tracks that should not be built or uploaded to the snap store.
+DISABLED_TRACKS: set[tuple[int, int]] = set()
 EXEC_TIMEOUT = 60
 
 
