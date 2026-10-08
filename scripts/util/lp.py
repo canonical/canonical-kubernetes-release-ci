@@ -45,7 +45,7 @@ def snap_recipe(owner: PersonSet, name: str):
     """Return the recipe object for a given owner and name."""
     lp_client = client()
     try:
-        lp_client.snaps.getByName(owner=owner, name=name)
+        return lp_client.snaps.getByName(owner=owner, name=name)
     except NotFound:
         LOG.info("    Recipe %s not found for owner %s", name, owner.name)
         return None
