@@ -66,14 +66,6 @@ def ensure_lp_recipe(
         )
         auto_build = False
         store_upload = False
-    elif (ver.major, ver.minor) in util.DISABLED_TRACKS:
-        LOG.warning(
-            "Disabling snap auto-build and store upload for disabled track %s.%s.",
-            ver.major,
-            ver.minor,
-        )
-        auto_build = False
-        store_upload = False
     else:
         auto_build = True
         store_upload = True

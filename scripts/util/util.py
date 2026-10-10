@@ -22,7 +22,7 @@ DISABLED_TRACKS: set[tuple[int, int]] = set()
 EXEC_TIMEOUT = 60
 
 
-def flavors(path: str) -> list[str]:
+def flavors(path: Path) -> list[str]:
     """Return a sorted list of available flavors in the given directory."""
     patch_dir = Path("build-scripts/patches")
     output = repo.ls_tree(path, patch_dir)

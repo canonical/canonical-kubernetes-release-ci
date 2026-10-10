@@ -33,6 +33,9 @@ lint = [
 static = ["bandit"]
 
 [tool.mypy]
+# Scripts import their helpers as top-level modules (e.g. "import util.util"),
+# so mypy needs scripts/ on its search path to resolve them.
+mypy_path = "scripts"
 ignore_missing_imports = true
 explicit_package_bases = true
 namespace_packages = true

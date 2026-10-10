@@ -346,6 +346,9 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
         # the beta/candidate purgatory soak entirely.
         if not revision_in_stable:
             k8s_version = channel_info.version
+            if not k8s_version:
+                chan_log.debug("Skipping channel without a version")
+                continue
 
             if new_patch_in_edge and k8s_version == latest_upstream_stable and not held:
                 chan_log.info(
