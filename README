@@ -1,1 +1,5 @@
 # Canonical Kubernetes release CI
+
+Promotion jobs use `GITHUB_TOKEN` to authenticate Kubernetes tag discovery.
+The tox `runner` environment must pass this token through; otherwise GitHub's
+anonymous API rate limit can stop proposal generation before tests run.
