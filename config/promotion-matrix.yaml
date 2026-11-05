@@ -1,0 +1,31 @@
+# Where and against what each snap track is tested during promotion
+# (see scripts/promote_tracks.py).
+#
+# The `default` profile is the current combination and applies to every track. An
+# entry in `overrides` replaces it for older tracks (see `older-than`);
+# the first matching override wins.
+#
+#   older-than   Overrides only: applies to tracks older than MAJOR.MINOR.
+#   runs-on      Self-hosted runner label to use for each architecture.
+#   lxd-series   Ubuntu series to run the E2E tests on (as `ubuntu:<series>` LXD
+#                images), for each risk level a revision is promoted *to*.
+default:
+  runs-on:
+    amd64: self-hosted-linux-amd64-noble-large
+    arm64: self-hosted-linux-arm64-noble-large
+  lxd-series:
+    beta: ["22.04", "24.04", "26.04"]
+    candidate: ["26.04"]
+    stable: ["26.04"]
+
+overrides:
+  # ubuntu:20.04 LXD containers can't run on Noble+ host kernels (old apparmor_parser
+  # rejects the AppArmor profiles), so tracks still testing 20.04 stay on Jammy runners.
+  - older-than: "1.36"
+    runs-on:
+      amd64: self-hosted-linux-amd64-jammy-large
+      arm64: self-hosted-linux-arm64-jammy-large
+    lxd-series:
+      beta: ["20.04", "22.04", "24.04", "26.04"]
+      candidate: ["26.04"]
+      stable: ["26.04"]

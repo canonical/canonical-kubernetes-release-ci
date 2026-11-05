@@ -15,9 +15,9 @@ from functools import cached_property
 from pathlib import Path
 from typing import Optional
 
-import util.gh as gh
 import util.k8s as k8s
 import util.lp as lp
+import util.promotion_matrix as promotion_matrix
 import util.repo as repo
 import util.snapstore as snapstore
 import util.util as util
@@ -38,8 +38,6 @@ The first stable release for each track requires blessing from SolQA and is prom
    `PATTERN:CEILING` (capped: promoted normally up through CEILING, never past it),
    where CEILING is one of edge, beta, or candidate.
 """
-
-SERIES = ["20.04", "22.04", "24.04", "26.04"]
 
 # Tracks matching a bare pattern are frozen (never promoted at any risk level).
 # Tracks matching a `(pattern, ceiling)` pair are capped at that risk level.
@@ -216,21 +214,6 @@ def create_proposal(args):
     return proposals
 
 
-def _get_series(next_risk: str) -> list[str]:
-    """Get the series for the proposal based on the next risk level.
-
-    Args:
-        next_risk: The next risk level to promote to.
-
-    Returns:
-        A list of series to include in the proposal.
-
-    """
-    if next_risk == "beta":
-        return SERIES
-    return SERIES[-1:]
-
-
 def _create_arch_proposals(arch, channels: dict[str, Channel], args):
     proposals = []
     ignored_tracks = IGNORE_TRACKS + getattr(args, "ignore_tracks", [])
@@ -332,8 +315,9 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             proposal["next-risk"] = next_risk
             proposal["snap-channel"] = final_channel
             proposal["name"] = f"{util.SNAP_NAME}-{track}/{next_risk}-{arch}"
-            proposal["runner-labels"] = gh.arch_to_gh_labels(arch, self_hosted=True)
-            proposal["lxd-images"] = [f"ubuntu:{series}" for series in _get_series(next_risk)]
+            profile = promotion_matrix.profile_for_track(track)
+            proposal["runner-labels"] = [profile.runner_for(arch)]
+            proposal["lxd-images"] = [f"ubuntu:{s}" for s in profile.lxd_series[next_risk]]
             return proposal
 
         # Whenever there's a new stable upstream release, we'll skip purgatory

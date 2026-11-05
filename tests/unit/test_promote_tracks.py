@@ -5,10 +5,25 @@ import unittest.mock as mock
 import promote_tracks
 import pytest
 from freezegun import freeze_time
+from util import promotion_matrix
 
 MOCK_BRANCH = "branchy-mcbranchface"
 MOCK_TRACK = "1.31-tracky"
 MOCK_SERIES = ["capricorn", "aquarius", "pisces"]
+MOCK_RUNNERS = {"amd64": "runny-mcrunnerface"}
+MOCK_PROFILES = [
+    promotion_matrix.Profile(
+        runs_on=MOCK_RUNNERS,
+        lxd_series={
+            "beta": MOCK_SERIES,
+            "candidate": MOCK_SERIES[-1:],
+            "stable": MOCK_SERIES[-1:],
+        },
+    )
+]
+PATCH_PROFILES = mock.patch(
+    "promote_tracks.promotion_matrix.load_profiles", new=mock.Mock(return_value=MOCK_PROFILES)
+)
 args = argparse.Namespace(
     dry_run=False,
     loglevel="INFO",
@@ -67,7 +82,7 @@ def _expected_proposals(track, next_risk, risk, revision, upgrade_channels=None)
             "name": f"k8s-1.31-tracky/{next_risk}-amd64",
             "next-risk": next_risk,
             "revision": revision,
-            "runner-labels": ["X64", "self-hosted", "jammy", "generic"],
+            "runner-labels": [MOCK_RUNNERS["amd64"]],
             "snap-channel": f"{track}/{next_risk}",
             "track": track,
             "upgrade-channels": upgrade_channels,
@@ -104,7 +119,7 @@ def _mock_k8s_versions(latest_stable: str = "v1.33.0"):
         ("candidate", "stable", "2000-01-02"),
     ],
 )
-@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+@PATCH_PROFILES
 def test_risk_promotable(risk, next_risk, now):
     with (
         freeze_time(now),
@@ -198,7 +213,7 @@ def test_parse_ignore_track_rejects_invalid_ceiling():
         ("1.40-classic", [r"1\.\d+-classic:edge"], True),  # Lowest ceiling
     ],
 )
-@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+@PATCH_PROFILES
 def test_ignore_tracks_ceiling(track, ignored_entries, expected_held_at_candidate):
     with (
         freeze_time("2000-01-02"),
@@ -214,7 +229,7 @@ def test_ignore_tracks_ceiling(track, ignored_entries, expected_held_at_candidat
     )
 
 
-@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+@PATCH_PROFILES
 def test_ignore_tracks_ceiling_allows_promotion_up_to_ceiling():
     # A track capped at beta must still be promoted edge->beta: reaching the
     # ceiling exactly is allowed, only exceeding it is blocked.
@@ -238,7 +253,7 @@ def test_ignore_tracks_most_restrictive_wins():
     assert proposals == [], "Explicit freeze must not be loosened by a laxer built-in cap"
 
 
-@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+@PATCH_PROFILES
 def test_ignore_tracks_ceiling_does_not_block_lower_risks():
     # A track held at candidate must still be promoted through edge/beta/candidate.
     with (
@@ -251,7 +266,7 @@ def test_ignore_tracks_ceiling_does_not_block_lower_risks():
     assert proposals == _expected_proposals(MOCK_TRACK, "candidate", "beta", 2)
 
 
-@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+@PATCH_PROFILES
 def test_ignore_tracks_ceiling_holds_new_stable_bootstrap():
     # A track held at candidate must not take the "new stable upstream release"
     # fast path either: it must still be promoted one purgatory-gated step at a
@@ -268,7 +283,7 @@ def test_ignore_tracks_ceiling_holds_new_stable_bootstrap():
     )
 
 
-@mock.patch("promote_tracks.SERIES", MOCK_SERIES)
+@PATCH_PROFILES
 def test_new_stable():
     # In this scenario, the channel version matches the latest stable.
     with _make_channel_map(MOCK_TRACK, "edge"), _mock_k8s_versions("v1.31.0"):
