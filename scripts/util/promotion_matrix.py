@@ -15,11 +15,11 @@ _TRACK_RE = re.compile(r"^(\d+)\.(\d+)")
 
 @dataclass(frozen=True)
 class Profile:
-    """Test setup for the tracks below `below_track` (all tracks if unset)."""
+    """Test setup for the tracks older than `older_than` (all tracks if unset)."""
 
     runs_on: dict[str, str]
     lxd_series: dict[str, list[str]]
-    below_track: Optional[tuple[int, int]] = None
+    older_than: Optional[tuple[int, int]] = None
 
     def runner_for(self, arch: str) -> str:
         """Get the label of the runner for an architecture."""
@@ -48,18 +48,18 @@ def load_profiles(path: Path = CONFIG_PATH) -> list[Profile]:
         Profile(
             runs_on=entry["runs-on"],
             lxd_series=entry["lxd-series"],
-            below_track=_parse_track(entry["below-track"]) if "below-track" in entry else None,
+            older_than=_parse_track(entry["older-than"]) if "older-than" in entry else None,
         )
         for entry in [*data.get("overrides", []), data["default"]]
     ]
-    if any(p.below_track is None for p in profiles[:-1]) or profiles[-1].below_track:
-        raise ValueError(f"{path}: overrides require 'below-track', the default must not have it")
+    if any(p.older_than is None for p in profiles[:-1]) or profiles[-1].older_than:
+        raise ValueError(f"{path}: overrides require 'older-than', the default must not have it")
     return profiles
 
 
 def profile_for_track(track: str, profiles: Optional[list[Profile]] = None) -> Profile:
-    """Get the first override whose `below-track` is above the track, else the default."""
+    """Get the first override whose `older-than` is above the track, else the default."""
     version = _parse_track(track)
     if profiles is None:
         profiles = load_profiles()
-    return next(p for p in profiles if p.below_track is None or version < p.below_track)
+    return next(p for p in profiles if p.older_than is None or version < p.older_than)

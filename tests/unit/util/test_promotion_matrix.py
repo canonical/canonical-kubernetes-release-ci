@@ -8,10 +8,10 @@ RISKS = ["beta", "candidate", "stable"]
 def profiles():
     return [
         promotion_matrix.Profile(
-            {"amd64": "oldest"}, {r: ["18.04"] for r in RISKS}, below_track=(1, 30)
+            {"amd64": "oldest"}, {r: ["18.04"] for r in RISKS}, older_than=(1, 30)
         ),
         promotion_matrix.Profile(
-            {"amd64": "old"}, {r: ["20.04"] for r in RISKS}, below_track=(1, 36)
+            {"amd64": "old"}, {r: ["20.04"] for r in RISKS}, older_than=(1, 36)
         ),
         promotion_matrix.Profile({"amd64": "new"}, {r: ["24.04"] for r in RISKS}),
     ]
@@ -42,7 +42,7 @@ def test_profile_for_track_invalid(profiles):
     "content",
     [
         "overrides: []\n",
-        "default: {runs-on: {amd64: x}, lxd-series: {}, below-track: '1.36'}\n",
+        "default: {runs-on: {amd64: x}, lxd-series: {}, older-than: '1.36'}\n",
         "default: {runs-on: {amd64: x}, lxd-series: {}}\n"
         "overrides: [{runs-on: {amd64: y}, lxd-series: {}}]\n",
     ],
