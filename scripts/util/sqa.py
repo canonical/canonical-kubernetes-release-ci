@@ -51,7 +51,6 @@ def get_series(base: str) -> str | None:
         "26.04": "resolute",
         "24.04": "noble",
         "22.04": "jammy",
-        "20.04": "focal",
     }
 
     return base_series_map.get(base)
