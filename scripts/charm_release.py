@@ -10,17 +10,17 @@ a revision has been published. We call the set of all such revisions a revision 
 track. For example track 1.32 of k8s can have the following matrix of revisions on candidate
 risk level:
 
-        20.04   22.04   24.04
-amd64   741     742     743
-arm64   736     748     750
+        22.04   24.04
+amd64   742     743
+arm64   748     750
 
 And the following matrix of revisions published on stable:
 
-        20.04   22.04   24.04
-amd64   456     457     458
-arm64   459     460     461
+        22.04   24.04
+amd64   457     458
+arm64   460     461
 
-The goal is to promote all 6 revisions of the 1.32/candidate to 1.32/stable. The same goes for
+The goal is to promote all 4 revisions of the 1.32/candidate to 1.32/stable. The same goes for
 k8s-worker charm and any other charm that might be needed to have a complete test. We call the
 revision matrices of all the necessary charms a bundle, which should not be confused with charm
 bundles.

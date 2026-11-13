@@ -207,7 +207,7 @@ def get_revision_matrix(charm_name: str, channel: str) -> RevisionMatrix:
     log.info(f"Querying Charmhub to get revisions of {charm_name} in {channel}...")
 
     revision_matrix = RevisionMatrix()
-    for base in ["20.04", "22.04", "24.04", "26.04", "28.04", "30.04"]:
+    for base in ["22.04", "24.04", "26.04", "28.04", "30.04"]:
         for arch in ["amd64", "arm64"]:
             if revision := find_revision(charm_name, channel, arch, base):
                 revision_matrix.set(arch, base, revision)
