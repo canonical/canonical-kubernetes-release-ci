@@ -347,6 +347,23 @@ def test_non_edge_risks_still_promote_when_recipe_git_ref_ahead(risk, next_risk)
     assert proposals == _expected_proposals(MOCK_TRACK, next_risk, risk, 2)
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["promote_tracks.py", "--dry-run", "propose", "--gh-action"],
+        ["promote_tracks.py", "propose", "--gh-action", "--dry-run"],
+    ],
+)
+def test_main_propose_dry_run_flag_positions(argv, monkeypatch: pytest.MonkeyPatch):
+    captured: list[bool] = []
+    monkeypatch.setattr("sys.argv", argv)
+    monkeypatch.setattr(promote_tracks, "create_proposal", lambda a: captured.append(a.dry_run))
+
+    promote_tracks.main()
+
+    assert captured == [True]
+
+
 @PATCH_PROFILES
 def test_new_stable():
     # In this scenario, the channel version matches the latest stable.

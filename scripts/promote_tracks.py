@@ -466,6 +466,12 @@ def main():
     subparsers = arg_parser.add_subparsers(required=True)
     propose_args = subparsers.add_parser("propose", help="Propose revisions for promotion")
     propose_args.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Do not trigger Launchpad retries when proposing promotions",
+    )
+    propose_args.add_argument(
         "--gh-action",
         action="store_true",
         help="Output the proposals to be used in a GitHub Action",

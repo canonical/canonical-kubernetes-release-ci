@@ -1,6 +1,5 @@
 """Utility functions for interacting with Launchpad and Snap recipes."""
 
-import itertools
 import logging
 import os
 from configparser import ConfigParser
@@ -15,7 +14,6 @@ PENDING_BUILD_STATES: frozenset[str] = frozenset(
     {"Needs building", "Currently building", "Uploading build"}
 )
 PENDING_UPLOAD_STATES: frozenset[str] = frozenset({"Pending", "Failed to upload"})
-MAX_RECENT_BUILDS: int = 20
 
 
 @cache
@@ -79,34 +77,63 @@ def branch_from_track(snap, track):
     return None
 
 
+def _recipe_arches(recipe) -> set[str]:
+    processors = getattr(recipe, "processors", None)
+    if processors is None:
+        return set()
+    try:
+        return {name for p in processors if isinstance((name := getattr(p, "name", None)), str)}
+    except TypeError:
+        return set()
+
+
 def retry_failed_builds(recipe, arch: str | None = None, dry_run: bool = False) -> list[str]:
-    """Retry architectures whose most recent Launchpad build failed."""
+    """Retry architectures whose most recent Launchpad build or store upload failed."""
     retried: list[str] = []
     seen_arches: set[str] = set()
-    for build in itertools.islice(recipe.builds, MAX_RECENT_BUILDS):
+    target_arches: set[str] | None = (
+        {arch} if arch is not None else (_recipe_arches(recipe) or None)
+    )
+
+    for build in recipe.builds:
         build_arch = getattr(build, "arch_tag", None)
         if not build_arch or (arch is not None and build_arch != arch):
             continue
         if build_arch in seen_arches:
             continue
         seen_arches.add(build_arch)
+
+        recipe_name = getattr(recipe, "name", "recipe")
+        dry_suffix = " (dry-run)" if dry_run else ""
         if build.buildstate in FAILED_BUILD_STATES and getattr(build, "can_be_retried", False):
-            LOG.info(
-                "Retrying failed %s build for %s%s",
-                build_arch,
-                getattr(recipe, "name", "recipe"),
-                " (dry-run)" if dry_run else "",
-            )
+            LOG.info("Retrying failed %s build for %s%s", build_arch, recipe_name, dry_suffix)
             if not dry_run:
                 try:
                     build.retry()
                 except HTTPError as e:
                     LOG.warning("Failed to retry %s build: %s", build_arch, e)
-                    if arch is not None:
-                        break
-                    continue
-            retried.append(build_arch)
-        if arch is not None:
+                else:
+                    retried.append(build_arch)
+            else:
+                retried.append(build_arch)
+        elif (
+            build.buildstate == "Successfully built"
+            and getattr(build, "store_upload_status", None) == "Failed to upload"
+        ):
+            LOG.info(
+                "Retrying failed %s store upload for %s%s", build_arch, recipe_name, dry_suffix
+            )
+            if not dry_run:
+                try:
+                    build.scheduleStoreUpload()
+                except HTTPError as e:
+                    LOG.warning("Failed to schedule %s store upload: %s", build_arch, e)
+                else:
+                    retried.append(build_arch)
+            else:
+                retried.append(build_arch)
+
+        if target_arches is not None and seen_arches >= target_arches:
             break
     return retried
 
@@ -120,29 +147,28 @@ def edge_is_stale(recipe, arch: str, edge_revision: int | None) -> bool:
 
     latest_build = None
     edge_build = None
-    for build in itertools.islice(recipe.builds, MAX_RECENT_BUILDS):
+    for build in recipe.builds:
         if getattr(build, "arch_tag", None) != arch:
             continue
         if latest_build is None:
             latest_build = build
+            if getattr(latest_build, "store_upload_revision", None) != edge_revision:
+                if latest_build.buildstate in (FAILED_BUILD_STATES | PENDING_BUILD_STATES):
+                    return True
+                if getattr(latest_build, "store_upload_status", None) in PENDING_UPLOAD_STATES:
+                    return True
+            if not head_sha:
+                return False
         if edge_build is None and getattr(build, "store_upload_revision", None) == edge_revision:
             edge_build = build
         if latest_build is not None and edge_build is not None:
             break
 
-    if (
-        latest_build is not None
-        and getattr(latest_build, "store_upload_revision", None) != edge_revision
-    ):
-        if latest_build.buildstate in (FAILED_BUILD_STATES | PENDING_BUILD_STATES):
+    if head_sha:
+        if edge_build is None:
             return True
-        if getattr(latest_build, "store_upload_status", None) in PENDING_UPLOAD_STATES:
-            return True
-
-    if head_sha and edge_build is not None:
         edge_sha = getattr(edge_build, "revision_id", None)
-        if edge_sha and edge_sha != head_sha:
-            return True
+        return not edge_sha or edge_sha != head_sha
 
     return False
 

@@ -154,6 +154,52 @@ def test_retry_failed_builds_respects_dry_run_and_arch_filter():
     arm64_failed.retry.assert_not_called()
 
 
+def test_retry_failed_builds_schedules_store_upload_on_upload_failure():
+    upload_failed = _mock_build(
+        "amd64",
+        "Successfully built",
+        can_be_retried=False,
+        revision_id="b5634b2f" * 5,
+        store_upload_status="Failed to upload",
+    )
+    recipe = mock.Mock(builds=[upload_failed], processors=[])
+
+    assert lp.retry_failed_builds(recipe, dry_run=True) == ["amd64"]
+    upload_failed.scheduleStoreUpload.assert_not_called()
+    upload_failed.retry.assert_not_called()
+
+    assert lp.retry_failed_builds(recipe, dry_run=False) == ["amd64"]
+    upload_failed.scheduleStoreUpload.assert_called_once_with()
+    upload_failed.retry.assert_not_called()
+
+
+def test_retry_failed_builds_scans_past_other_arch_history_and_stops_at_processors():
+    amd64_builds = [
+        _mock_build("amd64", "Successfully built", store_upload_revision=6000 + i)
+        for i in range(25)
+    ]
+    arm64_failed = _mock_build("arm64", "Failed to build", can_be_retried=True)
+    unreachable_trailing = mock.Mock(
+        side_effect=AssertionError("should stop once processors seen")
+    )
+
+    def build_stream():
+        yield from amd64_builds
+        yield arm64_failed
+        unreachable_trailing()
+
+    p_amd64 = mock.Mock()
+    p_amd64.name = "amd64"
+    p_arm64 = mock.Mock()
+    p_arm64.name = "arm64"
+    recipe = mock.Mock(builds=build_stream(), processors=[p_amd64, p_arm64])
+
+    retried = lp.retry_failed_builds(recipe, dry_run=False)
+
+    assert retried == ["arm64"]
+    arm64_failed.retry.assert_called_once_with()
+
+
 @pytest.mark.parametrize(
     "head_sha, builds, edge_rev, expected",
     [
@@ -234,6 +280,56 @@ def test_retry_failed_builds_respects_dry_run_and_arch_filter():
                 ),
             ],
             5877,
+            True,
+        ),
+        # Up-to-date even when >20 builds from another arch precede amd64's edge build.
+        (
+            "b5634b2f" * 5,
+            [
+                *[
+                    _mock_build("arm64", "Successfully built", store_upload_revision=7000 + i)
+                    for i in range(25)
+                ],
+                _mock_build(
+                    "amd64",
+                    "Successfully built",
+                    revision_id="b5634b2f" * 5,
+                    store_upload_revision=5890,
+                ),
+            ],
+            5890,
+            False,
+        ),
+        # Stale when >20 builds from another arch precede amd64's outdated edge build.
+        (
+            "b5634b2f" * 5,
+            [
+                *[
+                    _mock_build("arm64", "Successfully built", store_upload_revision=7000 + i)
+                    for i in range(25)
+                ],
+                _mock_build(
+                    "amd64",
+                    "Successfully built",
+                    revision_id="e5aec773" * 5,
+                    store_upload_revision=5877,
+                ),
+            ],
+            5877,
+            True,
+        ),
+        # Conservative hold: edge revision's build cannot be found while git_ref HEAD is known.
+        (
+            "b5634b2f" * 5,
+            [
+                _mock_build(
+                    "amd64",
+                    "Successfully built",
+                    revision_id="b5634b2f" * 5,
+                    store_upload_revision=5800,
+                )
+            ],
+            5890,
             True,
         ),
     ],
