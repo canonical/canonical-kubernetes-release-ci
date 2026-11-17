@@ -204,6 +204,26 @@ def test_get_k8s_tags_403_with_reset_header_and_remaining_quota_raises_immediate
         assert mock_get.call_count == 1
 
 
+@pytest.mark.parametrize(
+    "status_code,headers",
+    [
+        (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(time.time() + 3600)}),
+        (429, {"retry-after": "120"}),
+    ],
+)
+def test_get_k8s_tags_rate_limit_exceeding_max_wait_raises_immediately(status_code, headers):
+    err_resp = requests.Response()
+    err_resp.status_code = status_code
+    err_resp.headers.update(headers)
+    err_resp.reason = "Rate Limit Exceeded"
+    http_err = requests.exceptions.HTTPError(response=err_resp)
+
+    with patch("requests.get", side_effect=http_err) as mock_get:
+        with pytest.raises(requests.exceptions.HTTPError):
+            get_k8s_tags()
+        assert mock_get.call_count == 1
+
+
 def test_get_k8s_tags_persistent_transient_failure_exhausts_retries():
     with patch(
         "requests.get", side_effect=requests.exceptions.ReadTimeout("read timed out")
@@ -221,6 +241,10 @@ def test_wait_strategy_uses_retry_after_header():
     state.outcome.exception.return_value = requests.exceptions.HTTPError(response=resp)
     assert _wait_strategy(state) == 45.0
 
+    # Over-cap delay is capped at 60.0s
+    resp.headers["retry-after"] = "120"
+    assert _wait_strategy(state) == 60.0
+
 
 def test_wait_strategy_uses_ratelimit_reset_header():
     now = time.time()
@@ -232,6 +256,10 @@ def test_wait_strategy_uses_ratelimit_reset_header():
     state.outcome.exception.return_value = requests.exceptions.HTTPError(response=resp)
     wait_seconds = _wait_strategy(state)
     assert 29.0 <= wait_seconds <= 31.0
+
+    # Over-cap reset delay is capped at 60.0s
+    resp.headers["x-ratelimit-reset"] = str(now + 3600)
+    assert _wait_strategy(state) == 60.0
 
 
 def test_wait_strategy_falls_back_to_exponential_backoff():

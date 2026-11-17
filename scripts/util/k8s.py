@@ -23,12 +23,30 @@ LOG = logging.getLogger(__name__)
 # To fetch all tags you need to follow the 'Link' header and request subsequent pages.
 K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags?per_page=100"
 REQUEST_TIMEOUT = 15
+MAX_RATE_LIMIT_WAIT = 60.0
 
 
 def _request_headers() -> Dict[str, str]:
     """Authenticate via GITHUB_TOKEN if set (avoids the 60 req/hr anonymous limit)."""
     token = os.environ.get("GITHUB_TOKEN")
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _rate_limit_delay(response: requests.Response) -> float | None:
+    """Extract required rate limit delay in seconds from response headers, if any."""
+    headers = response.headers
+    if "retry-after" in headers:
+        try:
+            return max(0.0, float(headers["retry-after"]))
+        except (ValueError, TypeError):
+            pass
+    if headers.get("x-ratelimit-remaining") == "0" and "x-ratelimit-reset" in headers:
+        try:
+            delay = float(headers["x-ratelimit-reset"]) - time.time()
+            return max(0.0, delay)
+        except (ValueError, TypeError):
+            pass
+    return None
 
 
 def _is_rate_limited(response: requests.Response) -> bool:
@@ -59,9 +77,18 @@ def _is_transient_error(exc: BaseException) -> bool:
         if resp is not None:
             if 500 <= resp.status_code < 600:
                 return True
-            if resp.status_code == 429:
-                return True
-            if resp.status_code == 403 and _is_rate_limited(resp):
+            is_rate_limit = resp.status_code == 429 or (
+                resp.status_code == 403 and _is_rate_limited(resp)
+            )
+            if is_rate_limit:
+                delay = _rate_limit_delay(resp)
+                if delay is not None and delay > MAX_RATE_LIMIT_WAIT:
+                    LOG.warning(
+                        "Rate limit delay %.1fs exceeds cap of %.1fs; aborting retry.",
+                        delay,
+                        MAX_RATE_LIMIT_WAIT,
+                    )
+                    return False
                 return True
     return False
 
@@ -74,19 +101,9 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     if retry_state.outcome and retry_state.outcome.failed:
         exc = retry_state.outcome.exception()
         if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
-            headers = exc.response.headers
-            if "retry-after" in headers:
-                try:
-                    return max(0.0, float(headers["retry-after"]))
-                except (ValueError, TypeError):
-                    pass
-            if headers.get("x-ratelimit-remaining") == "0" and "x-ratelimit-reset" in headers:
-                try:
-                    delay = float(headers["x-ratelimit-reset"]) - time.time()
-                    if delay > 0:
-                        return delay
-                except (ValueError, TypeError):
-                    pass
+            delay = _rate_limit_delay(exc.response)
+            if delay is not None:
+                return min(delay, MAX_RATE_LIMIT_WAIT)
     return float(DEFAULT_BACKOFF(retry_state))
 
 
