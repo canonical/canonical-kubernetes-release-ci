@@ -5,6 +5,7 @@ import os
 from configparser import ConfigParser
 from functools import cache
 
+import util.gh as gh
 from launchpadlib.launchpad import Launchpad, PersonSet
 from lazr.restfulclient.errors import HTTPError, NotFound
 
@@ -138,8 +139,13 @@ def retry_failed_builds(recipe, arch: str | None = None, dry_run: bool = False) 
     return retried
 
 
-def edge_is_stale(recipe, arch: str, edge_revision: int | None) -> bool:
-    """Return True if git_ref is ahead of edge_revision or a newer build failed/is pending."""
+def edge_is_stale(
+    recipe,
+    arch: str,
+    edge_revision: int | None,
+    repo: str = gh.DEFAULT_REPO,
+) -> bool:
+    """Return True if git_ref is not in edge_revision or a newer build failed/is pending."""
     if edge_revision is None:
         return False
     git_ref = getattr(recipe, "git_ref", None)
@@ -166,9 +172,23 @@ def edge_is_stale(recipe, arch: str, edge_revision: int | None) -> bool:
 
     if head_sha:
         if edge_build is None:
+            LOG.warning(
+                "Could not find Launchpad build for edge revision %s (%s)",
+                edge_revision,
+                arch,
+            )
             return True
         edge_sha = getattr(edge_build, "revision_id", None)
-        return not edge_sha or edge_sha != head_sha
+        if not edge_sha:
+            LOG.warning(
+                "Edge build for %s (rev=%s) is missing revision_id commit SHA",
+                arch,
+                edge_revision,
+            )
+            return True
+        if edge_sha == head_sha:
+            return False
+        return not gh.is_ancestor(head_sha, edge_sha, repo=repo)
 
     return False
 
