@@ -150,6 +150,12 @@ def edge_is_stale(
         return False
     git_ref = getattr(recipe, "git_ref", None)
     head_sha = getattr(git_ref, "commit_sha1", None)
+    if not head_sha:
+        LOG.warning(
+            "Recipe %s git_ref is missing commit_sha1",
+            getattr(recipe, "name", "recipe"),
+        )
+        return True
 
     latest_build = None
     edge_build = None
@@ -163,34 +169,29 @@ def edge_is_stale(
                     return True
                 if getattr(latest_build, "store_upload_status", None) in PENDING_UPLOAD_STATES:
                     return True
-            if not head_sha:
-                return False
         if edge_build is None and getattr(build, "store_upload_revision", None) == edge_revision:
             edge_build = build
         if latest_build is not None and edge_build is not None:
             break
 
-    if head_sha:
-        if edge_build is None:
-            LOG.warning(
-                "Could not find Launchpad build for edge revision %s (%s)",
-                edge_revision,
-                arch,
-            )
-            return True
-        edge_sha = getattr(edge_build, "revision_id", None)
-        if not edge_sha:
-            LOG.warning(
-                "Edge build for %s (rev=%s) is missing revision_id commit SHA",
-                arch,
-                edge_revision,
-            )
-            return True
-        if edge_sha == head_sha:
-            return False
-        return not gh.is_ancestor(head_sha, edge_sha, repo=repo)
-
-    return False
+    if edge_build is None:
+        LOG.warning(
+            "Could not find Launchpad build for edge revision %s (%s)",
+            edge_revision,
+            arch,
+        )
+        return True
+    edge_sha = getattr(edge_build, "revision_id", None)
+    if not edge_sha:
+        LOG.warning(
+            "Edge build for %s (rev=%s) is missing revision_id commit SHA",
+            arch,
+            edge_revision,
+        )
+        return True
+    if edge_sha == head_sha:
+        return False
+    return not gh.is_ancestor(head_sha, edge_sha, repo=repo)
 
 
 LOG = logging.getLogger(__name__)

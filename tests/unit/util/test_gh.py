@@ -75,6 +75,15 @@ def test_is_ancestor_api_error_returns_false(mock_get, side_effect):
     assert gh.is_ancestor("sha-base", "sha-head") is False
 
 
+@pytest.mark.parametrize("payload", [None, [], "ahead", 123])
+@mock.patch("util.gh.requests.get")
+def test_is_ancestor_non_dict_response_returns_false(mock_get, payload):
+    mock_resp = mock.Mock()
+    mock_resp.json.return_value = payload
+    mock_get.return_value = mock_resp
+    assert gh.is_ancestor("sha-base", "sha-head") is False
+
+
 @mock.patch("util.gh.requests.get")
 def test_is_ancestor_custom_repo(mock_get):
     mock_resp = mock.Mock()

@@ -450,3 +450,25 @@ def test_edge_is_stale_missing_edge_sha(mock_get):
 
     assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=5901) is True
     mock_get.assert_not_called()
+
+
+@mock.patch("util.gh.requests.get")
+def test_edge_is_stale_missing_recipe_sha(mock_get):
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1=None),
+        builds=[
+            _mock_build(
+                "amd64",
+                "Successfully built",
+                revision_id="cd66c8a238" * 4,
+                store_upload_revision=5901,
+            )
+        ],
+    )
+    assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=5901) is True
+    mock_get.assert_not_called()
+
+
+def test_edge_is_stale_no_edge_revision():
+    recipe = mock.Mock()
+    assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=None) is False

@@ -52,6 +52,15 @@ def is_ancestor(
         resp = requests.get(url, headers=_request_headers(), timeout=timeout)
         resp.raise_for_status()
         data = resp.json()
+        if not isinstance(data, dict):
+            LOG.warning(
+                "Unexpected GitHub compare response type %s for %s...%s in %s",
+                type(data).__name__,
+                ancestor_sha,
+                descendant_sha,
+                repo,
+            )
+            return False
         status = data.get("status")
         if status in ("ahead", "identical"):
             return True
