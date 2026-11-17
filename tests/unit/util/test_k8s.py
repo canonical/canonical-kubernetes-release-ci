@@ -1,10 +1,12 @@
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
-from tenacity import wait_none
+from tenacity import RetryCallState, wait_none
 from util.k8s import (
     _fetch_tags_page,
+    _wait_strategy,
     get_k8s_tags,
     get_latest_releases_by_minor,
     get_latest_stable,
@@ -209,3 +211,33 @@ def test_get_k8s_tags_persistent_transient_failure_exhausts_retries():
         with pytest.raises(requests.exceptions.ReadTimeout):
             get_k8s_tags()
         assert mock_get.call_count == 3
+
+
+def test_wait_strategy_uses_retry_after_header():
+    resp = requests.Response()
+    resp.headers["retry-after"] = "45"
+    state = MagicMock(spec=RetryCallState)
+    state.outcome = MagicMock(failed=True)
+    state.outcome.exception.return_value = requests.exceptions.HTTPError(response=resp)
+    assert _wait_strategy(state) == 45.0
+
+
+def test_wait_strategy_uses_ratelimit_reset_header():
+    now = time.time()
+    resp = requests.Response()
+    resp.headers["x-ratelimit-remaining"] = "0"
+    resp.headers["x-ratelimit-reset"] = str(now + 30)
+    state = MagicMock(spec=RetryCallState)
+    state.outcome = MagicMock(failed=True)
+    state.outcome.exception.return_value = requests.exceptions.HTTPError(response=resp)
+    wait_seconds = _wait_strategy(state)
+    assert 29.0 <= wait_seconds <= 31.0
+
+
+def test_wait_strategy_falls_back_to_exponential_backoff():
+    state = MagicMock(spec=RetryCallState)
+    state.outcome = MagicMock(failed=True)
+    state.outcome.exception.return_value = requests.exceptions.ReadTimeout("timeout")
+    state.attempt_number = 1
+    wait_seconds = _wait_strategy(state)
+    assert wait_seconds >= 1.0

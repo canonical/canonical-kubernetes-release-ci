@@ -3,11 +3,13 @@
 import logging
 import os
 import re
+import time
 from typing import Dict, Iterable, List
 
 import requests
 from packaging.version import InvalidVersion, Version
 from tenacity import (
+    RetryCallState,
     before_sleep_log,
     retry,
     retry_if_exception,
@@ -64,9 +66,33 @@ def _is_transient_error(exc: BaseException) -> bool:
     return False
 
 
+DEFAULT_BACKOFF = wait_exponential(multiplier=1, min=1, max=10)
+
+
+def _wait_strategy(retry_state: RetryCallState) -> float:
+    """Calculate wait delay respecting Retry-After and X-RateLimit-Reset headers."""
+    if retry_state.outcome and retry_state.outcome.failed:
+        exc = retry_state.outcome.exception()
+        if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+            headers = exc.response.headers
+            if "retry-after" in headers:
+                try:
+                    return max(0.0, float(headers["retry-after"]))
+                except (ValueError, TypeError):
+                    pass
+            if headers.get("x-ratelimit-remaining") == "0" and "x-ratelimit-reset" in headers:
+                try:
+                    delay = float(headers["x-ratelimit-reset"]) - time.time()
+                    if delay > 0:
+                        return delay
+                except (ValueError, TypeError):
+                    pass
+    return float(DEFAULT_BACKOFF(retry_state))
+
+
 @retry(
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
+    wait=_wait_strategy,
     retry=retry_if_exception(_is_transient_error),
     before_sleep=before_sleep_log(LOG, logging.WARNING),
     reraise=True,
