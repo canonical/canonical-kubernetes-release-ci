@@ -67,12 +67,16 @@ jobs:
       - name: Assemble Dispatch Arguments
         if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
+          DRY_RUN: ${{ inputs.dry_run }}
           DAYS_IN_EDGE_RISK: ${{ inputs.days_in_edge_risk }}
           DAYS_IN_BETA_RISK: ${{ inputs.days_in_beta_risk }}
           DAYS_IN_CANDIDATE_RISK: ${{ inputs.days_in_candidate_risk }}
           IGNORE_TRACKS: ${{ inputs.ignore_tracks }}
           IGNORE_ARCHES: ${{ inputs.ignore_architectures }}
         run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
           ARGS="$ARGS --days-in-edge-risk $DAYS_IN_EDGE_RISK"
           ARGS="$ARGS --days-in-beta-risk $DAYS_IN_BETA_RISK"
           ARGS="$ARGS --days-in-candidate-risk $DAYS_IN_CANDIDATE_RISK"

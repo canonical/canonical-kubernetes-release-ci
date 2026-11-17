@@ -44,10 +44,12 @@ def reset_args():
 
 
 @pytest.fixture(autouse=True)
-def branch_from_track():
-    with mock.patch("util.lp.branch_from_track") as mocked:
-        mocked.return_value = MOCK_BRANCH
-        yield mocked
+def lp_track_mocks():
+    with (
+        mock.patch("util.lp.branch_from_track", return_value=MOCK_BRANCH) as mocked_branch,
+        mock.patch("util.lp.recipe_for_track", return_value=None),
+    ):
+        yield mocked_branch
 
 
 def _create_channel(track: str, risk: str, revision: int, date="2000-01-01", arch="amd64"):
@@ -281,6 +283,68 @@ def test_ignore_tracks_ceiling_holds_new_stable_bootstrap():
     assert proposals == _expected_proposals(
         MOCK_TRACK, "beta", "edge", 2, upgrade_channels=exp_upgrade_channels
     )
+
+
+@PATCH_PROFILES
+def test_edge_skipped_and_retried_when_recipe_ahead_with_failed_build():
+    failed_build = mock.Mock(
+        arch_tag="amd64",
+        buildstate="Failed to build",
+        can_be_retried=True,
+        revision_id=None,
+        store_upload_revision=None,
+        store_upload_status="Unscheduled",
+    )
+    stale_edge_build = mock.Mock(
+        arch_tag="amd64",
+        buildstate="Successfully built",
+        can_be_retried=False,
+        revision_id="e5aec773" * 5,
+        store_upload_revision=2,
+        store_upload_status="Uploaded",
+    )
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1="b5634b2f" * 5),
+        builds=[failed_build, stale_edge_build],
+    )
+
+    with (
+        freeze_time("2000-01-02"),
+        _make_channel_map(MOCK_TRACK, "edge", extra_risk="stable"),
+        _mock_k8s_versions(),
+        mock.patch("util.lp.recipe_for_track", return_value=recipe),
+    ):
+        proposals = promote_tracks.create_proposal(args)
+
+    failed_build.retry.assert_called_once_with()
+    assert proposals == []
+
+
+@pytest.mark.parametrize("risk, next_risk", [("beta", "candidate"), ("candidate", "stable")])
+@PATCH_PROFILES
+def test_non_edge_risks_still_promote_when_recipe_git_ref_ahead(risk, next_risk):
+    failed_build = mock.Mock(
+        arch_tag="amd64",
+        buildstate="Failed to build",
+        can_be_retried=True,
+        revision_id=None,
+        store_upload_revision=None,
+        store_upload_status="Unscheduled",
+    )
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1="b5634b2f" * 5),
+        builds=[failed_build],
+    )
+
+    with (
+        freeze_time("2000-01-02"),
+        _make_channel_map(MOCK_TRACK, risk, extra_risk="stable"),
+        _mock_k8s_versions(),
+        mock.patch("util.lp.recipe_for_track", return_value=recipe),
+    ):
+        proposals = promote_tracks.create_proposal(args)
+
+    assert proposals == _expected_proposals(MOCK_TRACK, next_risk, risk, 2)
 
 
 @PATCH_PROFILES

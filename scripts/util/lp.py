@@ -1,14 +1,21 @@
 """Utility functions for interacting with Launchpad and Snap recipes."""
 
+import itertools
 import logging
 import os
 from configparser import ConfigParser
 from functools import cache
 
 from launchpadlib.launchpad import Launchpad, PersonSet
-from lazr.restfulclient.errors import NotFound
+from lazr.restfulclient.errors import HTTPError, NotFound
 
 OWNER: str = "containers"
+FAILED_BUILD_STATES: frozenset[str] = frozenset({"Failed to build", "Chroot problem"})
+PENDING_BUILD_STATES: frozenset[str] = frozenset(
+    {"Needs building", "Currently building", "Uploading build"}
+)
+PENDING_UPLOAD_STATES: frozenset[str] = frozenset({"Pending", "Failed to upload"})
+MAX_RECENT_BUILDS: int = 20
 
 
 @cache
@@ -57,11 +64,87 @@ def snap_by_owner(snap: str):
     return lp_client.snaps.findByStoreName(owner=lp_client.people[OWNER], store_name=snap)
 
 
-def branch_from_track(snap, track):
-    """Return the branch name for a given track."""
+def recipe_for_track(snap: str, track: str):
+    """Return the Launchpad snap recipe publishing to the given track, if any."""
     for recipe in snap_by_owner(snap):
         if any(chan.split("/")[0] == track for chan in recipe.store_channels):
-            return recipe.git_ref_link.split("+ref/")[1]
+            return recipe
+    return None
+
+
+def branch_from_track(snap, track):
+    """Return the branch name for a given track."""
+    if recipe := recipe_for_track(snap, track):
+        return recipe.git_ref_link.split("+ref/")[1]
+    return None
+
+
+def retry_failed_builds(recipe, arch: str | None = None, dry_run: bool = False) -> list[str]:
+    """Retry architectures whose most recent Launchpad build failed."""
+    retried: list[str] = []
+    seen_arches: set[str] = set()
+    for build in itertools.islice(recipe.builds, MAX_RECENT_BUILDS):
+        build_arch = getattr(build, "arch_tag", None)
+        if not build_arch or (arch is not None and build_arch != arch):
+            continue
+        if build_arch in seen_arches:
+            continue
+        seen_arches.add(build_arch)
+        if build.buildstate in FAILED_BUILD_STATES and getattr(build, "can_be_retried", False):
+            LOG.info(
+                "Retrying failed %s build for %s%s",
+                build_arch,
+                getattr(recipe, "name", "recipe"),
+                " (dry-run)" if dry_run else "",
+            )
+            if not dry_run:
+                try:
+                    build.retry()
+                except HTTPError as e:
+                    LOG.warning("Failed to retry %s build: %s", build_arch, e)
+                    if arch is not None:
+                        break
+                    continue
+            retried.append(build_arch)
+        if arch is not None:
+            break
+    return retried
+
+
+def edge_is_stale(recipe, arch: str, edge_revision: int | None) -> bool:
+    """Return True if git_ref is ahead of edge_revision or a newer build failed/is pending."""
+    if edge_revision is None:
+        return False
+    git_ref = getattr(recipe, "git_ref", None)
+    head_sha = getattr(git_ref, "commit_sha1", None)
+
+    latest_build = None
+    edge_build = None
+    for build in itertools.islice(recipe.builds, MAX_RECENT_BUILDS):
+        if getattr(build, "arch_tag", None) != arch:
+            continue
+        if latest_build is None:
+            latest_build = build
+        if edge_build is None and getattr(build, "store_upload_revision", None) == edge_revision:
+            edge_build = build
+        if latest_build is not None and edge_build is not None:
+            break
+
+    if (
+        latest_build is not None
+        and getattr(latest_build, "store_upload_revision", None) != edge_revision
+    ):
+        if latest_build.buildstate in (FAILED_BUILD_STATES | PENDING_BUILD_STATES):
+            return True
+        if getattr(latest_build, "store_upload_status", None) in PENDING_UPLOAD_STATES:
+            return True
+
+    if head_sha and edge_build is not None:
+        edge_sha = getattr(edge_build, "revision_id", None)
+        if edge_sha and edge_sha != head_sha:
+            return True
+
+    return False
 
 
 LOG = logging.getLogger(__name__)
