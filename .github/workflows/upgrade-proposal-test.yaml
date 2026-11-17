@@ -189,7 +189,7 @@ jobs:
         attempt=1
         delay=10
         while true; do
-          if snap list snapcraft >/dev/null 2>&1; then
+          if timeout 15 snap list snapcraft >/dev/null 2>&1; then
             echo "Snapcraft is already installed."
             break
           fi
@@ -198,7 +198,7 @@ jobs:
             echo "Snapcraft installed successfully."
             break
           fi
-          if snap list snapcraft >/dev/null 2>&1; then
+          if timeout 15 snap list snapcraft >/dev/null 2>&1; then
             echo "Snapcraft installation completed."
             break
           fi
@@ -207,7 +207,7 @@ jobs:
             exit 1
           fi
           echo "Snapcraft install failed; aborting any pending install and retrying in ${delay}s..."
-          sudo snap abort --last=install? 2>/dev/null || true
+          timeout 30 sudo snap abort --last=install 2>/dev/null || true
           sleep "$delay"
           attempt=$((attempt + 1))
         done
