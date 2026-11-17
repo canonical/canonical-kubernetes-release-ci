@@ -1,21 +1,81 @@
 """Utility functions for interacting with Kubernetes release tags."""
 
+import logging
 import os
 import re
 from typing import Dict, Iterable, List
 
 import requests
 from packaging.version import InvalidVersion, Version
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
+
+LOG = logging.getLogger(__name__)
 
 # GitHub tags API is paginated (default 30 items/page). Requesting up to 100 reduces pages.
 # To fetch all tags you need to follow the 'Link' header and request subsequent pages.
 K8S_TAGS_URL = "https://api.github.com/repos/kubernetes/kubernetes/tags?per_page=100"
+REQUEST_TIMEOUT = 15
 
 
 def _request_headers() -> Dict[str, str]:
     """Authenticate via GITHUB_TOKEN if set (avoids the 60 req/hr anonymous limit)."""
     token = os.environ.get("GITHUB_TOKEN")
     return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _is_rate_limited(response: requests.Response) -> bool:
+    """Check if an HTTP response indicates a rate limit was encountered."""
+    headers = response.headers
+    if headers.get("x-ratelimit-remaining") == "0":
+        return True
+    if "retry-after" in headers:
+        return True
+    try:
+        content = response.text
+    except Exception as exc:
+        LOG.debug("Failed to read response body for rate limit check: %s", exc)
+        content = ""
+    if "rate limit" in content.lower():
+        return True
+    if "rate limit" in (response.reason or "").lower():
+        return True
+    return False
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """Determine whether an exception should be retried."""
+    if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
+        return True
+    if isinstance(exc, requests.exceptions.HTTPError):
+        resp = exc.response
+        if resp is not None:
+            if 500 <= resp.status_code < 600:
+                return True
+            if resp.status_code == 429:
+                return True
+            if resp.status_code == 403 and _is_rate_limited(resp):
+                return True
+    return False
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception(_is_transient_error),
+    before_sleep=before_sleep_log(LOG, logging.WARNING),
+    reraise=True,
+)
+def _fetch_tags_page(url: str) -> requests.Response:
+    """Fetch a single page of tags with retry for transient errors."""
+    resp = requests.get(url, headers=_request_headers(), timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return resp
 
 
 def get_k8s_tags() -> Iterable[str]:
@@ -32,8 +92,7 @@ def get_k8s_tags() -> Iterable[str]:
     tag_names: List[str] = []
 
     while url:
-        resp = requests.get(url, headers=_request_headers(), timeout=5)
-        resp.raise_for_status()
+        resp = _fetch_tags_page(url)
         page = resp.json()
         if not page and not tag_names:
             raise ValueError("No k8s tags retrieved.")
