@@ -3,12 +3,18 @@
 import contextlib
 import logging
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, Generator
 
 LOG = logging.getLogger(__name__)
+COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+
+
+def is_commit_sha(ref: str) -> bool:
+    return bool(COMMIT_SHA_RE.fullmatch(ref))
 
 
 def _parse_output(*args, **kwargs) -> str:
@@ -32,13 +38,23 @@ def clone(
     ```
     """
     with tempfile.TemporaryDirectory(dir=base_dir) as tmpdir:
-        cmd = ["git", "clone", repo_url, tmpdir]
-        if repo_tag:
-            cmd.extend(["-b", repo_tag])
-        if shallow:
-            cmd.extend(["--depth", "1"])
         LOG.info("Cloning %s @ %s (shallow=%s)", repo_url, repo_tag, shallow)
-        _parse_output(cmd)
+        if repo_tag and is_commit_sha(repo_tag):
+            _parse_output(["git", "init", tmpdir])
+            _parse_output(["git", "-C", tmpdir, "remote", "add", "origin", repo_url])
+            fetch_cmd = ["git", "-C", tmpdir, "fetch"]
+            if shallow:
+                fetch_cmd.extend(["--depth", "1"])
+            fetch_cmd.extend(["origin", repo_tag])
+            _parse_output(fetch_cmd)
+            _parse_output(["git", "-C", tmpdir, "checkout", "FETCH_HEAD"])
+        else:
+            cmd = ["git", "clone", repo_url, tmpdir]
+            if repo_tag:
+                cmd.extend(["-b", repo_tag])
+            if shallow:
+                cmd.extend(["--depth", "1"])
+            _parse_output(cmd)
         yield Path(tmpdir)
 
 
