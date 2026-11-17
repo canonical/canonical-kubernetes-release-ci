@@ -46,6 +46,10 @@ def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
                 recipe_name = util.recipe_name(flavor, ver, tip)
                 LOG.info("  Searching for recipe %s", recipe_name)
                 if recipe := lp.snap_recipe(owner, recipe_name):
+                    if getattr(args, "retry_failed", False):
+                        lp.retry_failed_builds(recipe, dry_run=args.dry_run)
+                        continue
+
                     archive = recipe.auto_build_archive
                     channels = recipe.auto_build_channels
                     pocket = recipe.auto_build_pocket
@@ -74,6 +78,11 @@ def tip_branches(branches: Iterable[str]) -> Generator[str, None, None]:
 def main():
     arg_parser = argparse.ArgumentParser(Path(__file__).name, usage=USAGE, description=DESCRIPTION)
     arg_parser.add_argument("--branches", nargs="*", type=str, help="Specific branches to confirm")
+    arg_parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help="Only retry architectures whose latest Launchpad build failed",
+    )
     args = util.setup_arguments(arg_parser)
     branches = args.branches
 

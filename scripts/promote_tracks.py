@@ -279,6 +279,18 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
             )
             continue
 
+        if risk == "edge":
+            if recipe := lp.recipe_for_track(util.SNAP_NAME, track):
+                retried = lp.retry_failed_builds(recipe, arch=arch, dry_run=args.dry_run)
+                if retried or lp.edge_is_stale(recipe, arch=arch, edge_revision=revision):
+                    chan_log.info(
+                        "Skipping promotion of stale edge rev=%-5s arch=%s "
+                        "(recipe git_ref ahead or latest build failed/pending)",
+                        revision,
+                        arch,
+                    )
+                    continue
+
         now = datetime.datetime.now(datetime.timezone.utc)
 
         if released_at := channel_info.channel.released_at:
@@ -494,6 +506,12 @@ def main():
     arg_parser = argparse.ArgumentParser(Path(__file__).name, usage=USAGE, description=DESCRIPTION)
     subparsers = arg_parser.add_subparsers(required=True)
     propose_args = subparsers.add_parser("propose", help="Propose revisions for promotion")
+    propose_args.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Do not trigger Launchpad retries when proposing promotions",
+    )
     propose_args.add_argument(
         "--gh-action",
         action="store_true",

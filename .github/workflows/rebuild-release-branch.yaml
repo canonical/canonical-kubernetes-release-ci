@@ -17,6 +17,12 @@ on:
         default: false
         description: |-
           If true, it will not trigger the builds, just print which would be built
+      retry_failed:
+        type: boolean
+        required: false
+        default: false
+        description: |-
+          If true, only retry architectures whose latest Launchpad build failed
   schedule:
     - cron: '0 0 * * 0'  # Runs weekly on Sunday
 
@@ -42,4 +48,4 @@ jobs:
       - run: 'echo $LPCREDS_B64 | base64 --decode > lp_creds'
       - name: Rebuild Branches
         run: |
-          tox -e runner -- scripts/request_builds.py --branch ${{ inputs.branches }}${{ inputs.dry_run && ' --dry-run' || '' }}
+          tox -e runner -- scripts/request_builds.py --branch ${{ inputs.branches }}${{ inputs.retry_failed && ' --retry-failed' || '' }}${{ inputs.dry_run && ' --dry-run' || '' }}
