@@ -1,6 +1,7 @@
 """Utility functions for interacting with Charmhub and managing charm revisions."""
 
 import base64
+import binascii
 import json
 import logging
 import os
@@ -174,11 +175,14 @@ def get_charmhub_auth_macaroon() -> str:
     if not creds_export_data:
         raise ValueError("Missing charmhub credentials,")
 
-    str_data = base64.b64decode(creds_export_data).decode()
-    auth = json.loads(str(str_data))
-    v = auth.get("v")
-    if not v:
-        raise ValueError("Malformed charmhub credentials")
+    try:
+        auth = json.loads(base64.b64decode(creds_export_data).decode())
+        v = auth["v"]
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError) as e:
+        raise ValueError(
+            "Malformed charmhub credentials: CHARMCRAFT_AUTH must hold the verbatim "
+            "contents of `charmcraft login --export <file>`, not the decoded macaroon."
+        ) from e
     return v
 
 

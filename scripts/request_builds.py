@@ -37,10 +37,6 @@ def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
             LOG.info("  Kubernetes version detected %s", branch_ver)
             tip = branch == "main"
 
-            if (ver.major, ver.minor) in util.DISABLED_TRACKS:
-                LOG.info("  Skipping disabled track %s.%s", ver.major, ver.minor)
-                continue
-
             flavors = util.flavors(dir)
             for flavor in flavors:
                 recipe_name = util.recipe_name(flavor, ver, tip)

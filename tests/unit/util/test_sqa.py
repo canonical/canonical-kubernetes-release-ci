@@ -83,13 +83,15 @@ def test_create_build(mock_weebl_run, mock_create_addon):
         mock_builds = file.read()
 
     mock_weebl_run.return_value = mock_builds
-    mock_create_addon.return_value = Addon(
-        uuid="b6d399db-f188-4de0-8870-1756f2de2e2c",
-        id="803",
-        created_at="2025-05-07T13:26:54.902590Z",
-        updated_at="2025-05-07T13:26:54.902590Z",
-        file="http://255.255.255.255:8080/uploads/tmptf6ph2ys.zip",
-        name="k8s_test",
+    mock_create_addon.return_value = Addon.model_validate(
+        {
+            "uuid": "b6d399db-f188-4de0-8870-1756f2de2e2c",
+            "id": "803",
+            "created_at": "2025-05-07T13:26:54.902590Z",
+            "updated_at": "2025-05-07T13:26:54.902590Z",
+            "file": "http://255.255.255.255:8080/uploads/tmptf6ph2ys.zip",
+            "name": "k8s_test",
+        }
     )
     build = create_build(
         "1293-amd64-22.04-1.32-beta",
