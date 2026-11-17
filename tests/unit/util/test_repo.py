@@ -19,6 +19,10 @@ def test_clone():
     with repo.clone(THIS_REPO) as dir:
         assert branch_sha1 == repo.commit_sha1(dir), "Expected same commit SHA1"
         assert repo.commit_sha1(dir, short=True) in branch_sha1, "Expected short SHA1"
+    with repo.clone(THIS_REPO, branch_sha1, True) as dir:
+        assert branch_sha1 == repo.commit_sha1(dir), "Expected shallow clone at commit SHA1"
+    with repo.clone(THIS_REPO, branch_sha1, False) as dir:
+        assert branch_sha1 == repo.commit_sha1(dir), "Expected full clone at commit SHA1"
 
 
 def test_ls_branches():
