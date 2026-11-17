@@ -92,7 +92,10 @@ jobs:
           # Reference $ARGS as a shell variable rather than expanding ${{ env.ARGS }}
           # into the script text: the ignore-track regexes contain parentheses and
           # backslashes that bash would otherwise mis-parse (syntax error) or strip.
-          tox -e runner -- scripts/promote_tracks.py propose --gh-action $ARGS
+          tox -e runner -- \
+            scripts/promote_tracks.py \
+            ${{ ((github.event_name == 'workflow_dispatch' && inputs.dry_run) || github.event_name == 'pull_request') && '--dry-run' || '' }} \
+            propose --gh-action $ARGS
   test-proposal:
     if: ${{ needs.promotion-proposal.outputs.proposals && needs.promotion-proposal.outputs.proposals != '[]' }}
     needs: promotion-proposal
