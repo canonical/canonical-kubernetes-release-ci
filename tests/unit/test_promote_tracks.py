@@ -1,6 +1,10 @@
 import argparse
 import contextlib
+import json
+import shutil
+import subprocess
 import unittest.mock as mock
+from pathlib import Path
 
 import promote_tracks
 import pytest
@@ -303,3 +307,157 @@ def test_new_stable():
         )[0],
     ]
     assert proposals == exp_proposals
+
+
+def _make_squashfs_snap(tmp_path: Path, bom: dict | None = None) -> Path:
+    if not shutil.which("mksquashfs") or not shutil.which("unsquashfs"):
+        pytest.skip("squashfs-tools not installed")
+    root = tmp_path / "snap-root"
+    root.mkdir()
+    if bom is not None:
+        (root / "bom.json").write_text(json.dumps(bom))
+    else:
+        (root / "placeholder").write_text("no bom")
+    snap_path = tmp_path / "k8s.snap"
+    subprocess.run(
+        ["mksquashfs", str(root), str(snap_path), "-noappend", "-quiet"],
+        check=True,
+    )
+    return snap_path
+
+
+def _make_snap_git_repo(tmp_path: Path, branch: str = "release-1.35") -> tuple[Path, str, str]:
+    remote = tmp_path / "k8s-snap.git"
+    remote.mkdir()
+    git_env = {
+        "GIT_AUTHOR_NAME": "Test",
+        "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "Test",
+        "GIT_COMMITTER_EMAIL": "test@example.com",
+        "PATH": "/usr/bin:/bin",
+    }
+    subprocess.run(["git", "init", "-b", branch], cwd=remote, env=git_env, check=True)
+    tests_dir = remote / "tests" / "integration" / "tests"
+    tests_dir.mkdir(parents=True)
+    (tests_dir / "test_smoke.py").write_text("# initial\n")
+    subprocess.run(["git", "add", "."], cwd=remote, env=git_env, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "snap build commit"], cwd=remote, env=git_env, check=True
+    )
+    snap_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=remote, text=True).strip()
+
+    (tests_dir / "test_new_head_only.py").write_text("# merged after snap built\n")
+    subprocess.run(["git", "add", "."], cwd=remote, env=git_env, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "post-build commit"], cwd=remote, env=git_env, check=True
+    )
+    head_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=remote, text=True).strip()
+    return remote, snap_sha, head_sha
+
+
+def test_execute_e2e_test_pins_to_snap_commit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    remote, snap_sha, head_sha = _make_snap_git_repo(tmp_path)
+    assert snap_sha != head_sha
+    snap_path = _make_squashfs_snap(
+        tmp_path, {"k8s": {"version": "release-1.35", "revision": snap_sha}}
+    )
+    monkeypatch.setenv("TEST_SNAP", str(snap_path))
+    monkeypatch.setattr(promote_tracks.util, "SNAP_REPO", f"file://{remote}")
+
+    checked_out_commits: list[str] = []
+    real_run = subprocess.run
+
+    def fake_tox_run(cmd, *run_args, **run_kwargs):
+        if cmd and cmd[0] == "tox" and "--version" not in cmd:
+            cwd = Path(run_kwargs["cwd"])
+            checked_out = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=cwd, text=True
+            ).strip()
+            checked_out_commits.append(checked_out)
+            assert not (cwd / "tests" / "test_new_head_only.py").exists()
+            return subprocess.CompletedProcess(cmd, 0)
+        if cmd and cmd[0] == "tox":
+            return subprocess.CompletedProcess(cmd, 0)
+        return real_run(cmd, *run_args, **run_kwargs)
+
+    e2e_args = argparse.Namespace(branch="release-1.35", next_risk="beta")
+    with mock.patch("promote_tracks.subprocess.run", side_effect=fake_tox_run):
+        promote_tracks.execute_e2e_test(e2e_args)
+
+    assert checked_out_commits == [snap_sha]
+
+
+def test_execute_e2e_test_falls_back_to_branch_when_bom_missing_or_commit_unreachable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    remote, _, head_sha = _make_snap_git_repo(tmp_path)
+    monkeypatch.setattr(promote_tracks.util, "SNAP_REPO", f"file://{remote}")
+
+    # Unreachable commit in bom.json must fall back to branch HEAD rather than aborting.
+    snap_path = _make_squashfs_snap(
+        tmp_path,
+        {"k8s": {"version": "release-1.35", "revision": "deadbeef" * 5}},
+    )
+    monkeypatch.setenv("TEST_SNAP", str(snap_path))
+
+    checked_out_commits: list[str] = []
+    real_run = subprocess.run
+
+    def fake_tox_run(cmd, *run_args, **run_kwargs):
+        if cmd and cmd[0] == "tox" and "--version" not in cmd:
+            checked_out = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], cwd=run_kwargs["cwd"], text=True
+            ).strip()
+            checked_out_commits.append(checked_out)
+            return subprocess.CompletedProcess(cmd, 0)
+        if cmd and cmd[0] == "tox":
+            return subprocess.CompletedProcess(cmd, 0)
+        return real_run(cmd, *run_args, **run_kwargs)
+
+    e2e_args = argparse.Namespace(branch="release-1.35", next_risk="beta")
+    with mock.patch("promote_tracks.subprocess.run", side_effect=fake_tox_run):
+        promote_tracks.execute_e2e_test(e2e_args)
+
+    assert checked_out_commits == [head_sha]
+
+    # Missing bom.json or non-SHA revision also falls back to branch HEAD.
+    no_bom_dir = tmp_path / "no-bom"
+    no_bom_dir.mkdir()
+    assert promote_tracks._snap_commit(str(_make_squashfs_snap(no_bom_dir, None))) is None
+    bad_sha_dir = tmp_path / "bad-sha"
+    bad_sha_dir.mkdir()
+    bad_snap = _make_squashfs_snap(bad_sha_dir, {"k8s": {"revision": "not-a-sha"}})
+    assert promote_tracks._snap_commit(str(bad_snap)) is None
+    assert promote_tracks._snap_commit(None) is None
+
+
+def test_execute_e2e_test_does_not_rerun_on_branch_when_tox_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    remote, snap_sha, _ = _make_snap_git_repo(tmp_path)
+    snap_path = _make_squashfs_snap(
+        tmp_path, {"k8s": {"version": "release-1.35", "revision": snap_sha}}
+    )
+    monkeypatch.setenv("TEST_SNAP", str(snap_path))
+    monkeypatch.setattr(promote_tracks.util, "SNAP_REPO", f"file://{remote}")
+
+    tox_invocations = 0
+    real_run = subprocess.run
+
+    def failing_tox_run(cmd, *run_args, **run_kwargs):
+        nonlocal tox_invocations
+        if cmd and cmd[0] == "tox" and "--version" not in cmd:
+            tox_invocations += 1
+            raise subprocess.CalledProcessError(1, cmd)
+        if cmd and cmd[0] == "tox":
+            return subprocess.CompletedProcess(cmd, 0)
+        return real_run(cmd, *run_args, **run_kwargs)
+
+    e2e_args = argparse.Namespace(branch="release-1.35", next_risk="beta")
+    with (
+        mock.patch("promote_tracks.subprocess.run", side_effect=failing_tox_run),
+        pytest.raises(promote_tracks.ProposalTestError),
+    ):
+        promote_tracks.execute_e2e_test(e2e_args)
+
+    assert tox_invocations == 1

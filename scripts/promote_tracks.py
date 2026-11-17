@@ -2,12 +2,15 @@
 """Promote revisions of the Canonical Kubernetes snap through the risk levels of each track."""
 
 import argparse
+import contextlib
 import dataclasses
 import datetime
 import json
 import logging
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from collections import defaultdict
@@ -397,7 +400,27 @@ def retry_upgrade_test(args):
     retrier(execute_upgrade_test, args)
 
 
-def _run_tox_tests(args, tox: list[str], test_path: Path):
+def _snap_commit(snap_path: Optional[str]) -> Optional[str]:
+    """Read the k8s-snap git commit SHA from bom.json inside a snap file."""
+    unsquashfs = shutil.which("unsquashfs")
+    if not snap_path or not Path(snap_path).is_file() or not unsquashfs:
+        return None
+    try:
+        raw = subprocess.check_output(
+            [unsquashfs, "-n", "-cat", snap_path, "bom.json"],
+            stderr=subprocess.DEVNULL,
+        )
+        revision = json.loads(raw)["k8s"]["revision"]
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError, KeyError, TypeError) as e:
+        LOG.warning("Could not read git revision from %s: %s", snap_path, e)
+        return None
+    if not isinstance(revision, str) or not repo.is_commit_sha(revision):
+        LOG.warning("Invalid git revision %r in %s bom.json", revision, snap_path)
+        return None
+    return revision
+
+
+def _run_tox_tests(args, tox: list[str], test_path: Path, ref: Optional[str] = None):
     """Run tox tests with the given command and test path."""
     try:
         # Probe for tox by attempting to run it; FileNotFoundError means it's not installed.
@@ -411,16 +434,33 @@ def _run_tox_tests(args, tox: list[str], test_path: Path):
         LOG.info("`tox` not found in PATH, skipping integration tests")
         raise
 
-    with repo.clone(util.SNAP_REPO, args.branch) as dir:
+    with contextlib.ExitStack() as stack:
+        target_ref = ref or args.branch
+        if ref:
+            try:
+                dir = stack.enter_context(repo.clone(util.SNAP_REPO, ref))
+            except subprocess.CalledProcessError as e:
+                LOG.warning(
+                    "Failed to clone %s at commit %s (%s); falling back to %s",
+                    util.SNAP_REPO,
+                    ref,
+                    e,
+                    args.branch,
+                )
+                target_ref = args.branch
+                dir = stack.enter_context(repo.clone(util.SNAP_REPO, target_ref))
+        else:
+            dir = stack.enter_context(repo.clone(util.SNAP_REPO, target_ref))
+
         if repo.ls_tree(dir, test_path):
-            LOG.info("Running integration tests for %s", args.branch)
+            LOG.info("Running integration tests for %s", target_ref)
             try:
                 subprocess.run(tox, cwd=dir / "tests/integration", check=True)
             except subprocess.CalledProcessError as e:
                 raise ProposalTestError(f"Integration tests failed: {e}") from e
             return
         else:
-            LOG.error("No integration tests found for %s, failing", args.branch)
+            LOG.error("No integration tests found for %s, failing", target_ref)
             raise ProposalTestError("No integration tests found")
 
 
@@ -439,7 +479,8 @@ def execute_e2e_test(args):
 
     tox = shlex.split(f"tox -e integration -- --tags {tag}")
     test_path = Path("tests/integration/tests/")
-    _run_tox_tests(args, tox, test_path)
+    commit = _snap_commit(os.getenv("TEST_SNAP"))
+    _run_tox_tests(args, tox, test_path, ref=commit)
 
 
 def execute_upgrade_test(args):
