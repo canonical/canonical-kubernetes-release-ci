@@ -20,11 +20,27 @@ runs:
         ARTIFACT_NAME=${ARTIFACT_NAME/:/-}    # replace : with -
         ARTIFACT_NAME=${ARTIFACT_NAME//\//-}  # replace / with -
         echo "artifact-name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+    - name: Check inspection reports directory
+      id: check-reports
+      shell: bash
+      run: |
+        DIR="${{ inputs.directory }}"
+        if [ ! -d "$DIR" ]; then
+          echo "::notice::Inspection reports directory '$DIR' does not exist; skipping inspection report upload."
+          echo "has-reports=false" >> $GITHUB_OUTPUT
+        elif [ -z "$(ls -A "$DIR" 2>/dev/null)" ]; then
+          echo "::notice::Inspection reports directory '$DIR' is empty; skipping inspection report upload."
+          echo "has-reports=false" >> $GITHUB_OUTPUT
+        else
+          echo "has-reports=true" >> $GITHUB_OUTPUT
+        fi
     - name: Prepare inspection reports
+      if: steps.check-reports.outputs.has-reports == 'true'
       shell: bash
       run: |
         tar -czvf ${{ github.workspace }}/inspection-reports.tar.gz -C ${{ inputs.directory }} .
     - name: Upload inspection reports
+      if: steps.check-reports.outputs.has-reports == 'true'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: ${{ steps.sanitize.outputs.artifact-name }}

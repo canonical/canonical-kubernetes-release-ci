@@ -50,6 +50,7 @@ jobs:
   test-proposal-e2e:
     name: E2E tests on ${{ matrix.lxd-image}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -69,12 +70,30 @@ jobs:
       - run: uv tool install tox --with tox-uv
       - name: Setup LXD
         uses: canonical/setup-lxd@a3c85fc6fb7fff43fcfeae87659e41a8f635b7dd # v0.1.3
+        timeout-minutes: 15
         with:
           channel: ${{ inputs.lxd-channel }}
           bridges: "lxdbr0,dualstack-br0,ipv6-br0"
       - name: Download snap revision ${{ inputs.revision }}
         run: |
-          snap download k8s --revision=${{ inputs.revision }} --basename k8s
+          max_attempts=3
+          attempt=1
+          delay=10
+          while true; do
+            echo "Attempt $attempt of $max_attempts: downloading snap revision ${{ inputs.revision }}..."
+            if timeout 600 snap download k8s --revision=${{ inputs.revision }} --basename k8s; then
+              echo "Snap revision ${{ inputs.revision }} downloaded successfully."
+              break
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "Failed to download snap revision ${{ inputs.revision }} after $max_attempts attempts." >&2
+              exit 1
+            fi
+            echo "Download failed; retrying in ${delay}s..."
+            rm -f k8s.snap k8s.assert
+            sleep "$delay"
+            attempt=$((attempt + 1))
+          done
       - name: Run e2e tests on ${{matrix.lxd-image}}
         env:
           TEST_SUBSTRATE: lxd
@@ -101,6 +120,7 @@ jobs:
   test-proposal-upgrade:
     name: ${{ join(matrix.upgrade-channels, ' to ')}} on ${{ matrix.lxd-image}}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -121,6 +141,7 @@ jobs:
       - run: uv tool install tox --with tox-uv
       - name: Setup LXD
         uses: canonical/setup-lxd@a3c85fc6fb7fff43fcfeae87659e41a8f635b7dd # v0.1.3
+        timeout-minutes: 15
         with:
           channel: ${{ inputs.lxd-channel }}
           bridges: "lxdbr0,dualstack-br0,ipv6-br0"
@@ -152,6 +173,7 @@ jobs:
   promote-proposal:
     name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
     runs-on: ${{ fromJson(inputs.runner-labels) }}
+    timeout-minutes: 30
     needs: [test-proposal-upgrade, test-proposal-e2e]
     steps:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -161,7 +183,25 @@ jobs:
     - name: Install uv
       uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
     - run: uv tool install tox --with tox-uv
-    - run: sudo snap install snapcraft --classic
+    - name: Install snapcraft
+      run: |
+        max_attempts=3
+        attempt=1
+        delay=10
+        while true; do
+          echo "Attempt $attempt of $max_attempts: installing snapcraft..."
+          if timeout 600 sudo snap install snapcraft --classic; then
+            echo "Snapcraft installed successfully."
+            break
+          fi
+          if [ "$attempt" -ge "$max_attempts" ]; then
+            echo "Failed to install snapcraft after $max_attempts attempts." >&2
+            exit 1
+          fi
+          echo "Snapcraft install failed; retrying in ${delay}s..."
+          sleep "$delay"
+          attempt=$((attempt + 1))
+        done
     - name: Promote
       env:
         SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
