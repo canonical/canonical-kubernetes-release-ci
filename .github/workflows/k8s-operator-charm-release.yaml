@@ -26,6 +26,7 @@ jobs:
     env:
       CHARMCRAFT_AUTH: ${{ secrets.CHARMCRAFT_AUTH }}
       SQA_API_KEY: ${{ secrets.SQA_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checking out repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
