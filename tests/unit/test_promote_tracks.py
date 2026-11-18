@@ -324,6 +324,37 @@ def test_edge_skipped_and_retried_when_recipe_ahead_with_failed_build():
     assert proposals == []
 
 
+@PATCH_PROFILES
+@mock.patch("util.gh.requests.get")
+def test_edge_promoted_when_edge_build_descends_from_recipe_git_ref(mock_get):
+    mock_resp = mock.Mock()
+    mock_resp.json.return_value = {"status": "ahead"}
+    mock_get.return_value = mock_resp
+
+    edge_build = mock.Mock(
+        arch_tag="amd64",
+        buildstate="Successfully built",
+        can_be_retried=False,
+        revision_id="cd66c8a238" * 4,
+        store_upload_revision=2,
+        store_upload_status="Uploaded",
+    )
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1="6434d09971" * 4),
+        builds=[edge_build],
+    )
+
+    with (
+        freeze_time("2000-01-02"),
+        _make_channel_map(MOCK_TRACK, "edge", extra_risk="stable"),
+        _mock_k8s_versions(),
+        mock.patch("util.lp.recipe_for_track", return_value=recipe),
+    ):
+        proposals = promote_tracks.create_proposal(args)
+
+    assert proposals == _expected_proposals(MOCK_TRACK, "beta", "edge", 2)
+
+
 @pytest.mark.parametrize("risk, next_risk", [("beta", "candidate"), ("candidate", "stable")])
 @PATCH_PROFILES
 def test_non_edge_risks_still_promote_when_recipe_git_ref_ahead(risk, next_risk):

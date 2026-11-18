@@ -2,6 +2,7 @@ import tempfile
 import unittest.mock as mock
 
 import pytest
+import requests
 import util.lp as lp
 
 
@@ -334,6 +335,140 @@ def test_retry_failed_builds_scans_past_other_arch_history_and_stops_at_processo
         ),
     ],
 )
-def test_edge_is_stale(head_sha, builds, edge_rev, expected):
+@mock.patch("util.gh.requests.get")
+def test_edge_is_stale(mock_get, head_sha, builds, edge_rev, expected):
+    mock_resp = mock.Mock()
+    mock_resp.json.return_value = {"status": "behind"}
+    mock_get.return_value = mock_resp
     recipe = mock.Mock(git_ref=mock.Mock(commit_sha1=head_sha), builds=builds)
     assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=edge_rev) is expected
+
+
+@pytest.mark.parametrize(
+    "status, expected",
+    [
+        ("ahead", False),
+        ("identical", False),
+        ("behind", True),
+        ("diverged", True),
+        ("unknown", True),
+    ],
+)
+@mock.patch("util.gh.requests.get")
+def test_edge_is_stale_ancestry_status(mock_get, status, expected):
+    head_sha = "6434d09971" * 4
+    edge_sha = "cd66c8a238" * 4
+    mock_resp = mock.Mock()
+    mock_resp.json.return_value = {"status": status}
+    mock_get.return_value = mock_resp
+
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1=head_sha),
+        builds=[
+            _mock_build(
+                "amd64",
+                "Successfully built",
+                revision_id=edge_sha,
+                store_upload_revision=5901,
+            )
+        ],
+    )
+
+    assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=5901) is expected
+    mock_get.assert_called_once_with(
+        f"https://api.github.com/repos/canonical/k8s-snap/compare/{head_sha}...{edge_sha}",
+        headers=mock.ANY,
+        timeout=10,
+    )
+
+
+@pytest.mark.parametrize(
+    "side_effect",
+    [
+        requests.HTTPError("404 Client Error: Not Found"),
+        requests.ConnectionError("Connection refused"),
+        requests.Timeout("Request timed out"),
+        ValueError("No JSON object could be decoded"),
+    ],
+)
+@mock.patch("util.gh.requests.get")
+def test_edge_is_stale_compare_api_error_holds_stale(mock_get, side_effect):
+    mock_get.side_effect = side_effect
+    head_sha = "6434d09971" * 4
+    edge_sha = "cd66c8a238" * 4
+
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1=head_sha),
+        builds=[
+            _mock_build(
+                "amd64",
+                "Successfully built",
+                revision_id=edge_sha,
+                store_upload_revision=5901,
+            )
+        ],
+    )
+
+    assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=5901) is True
+
+
+@mock.patch("util.gh.requests.get")
+def test_edge_is_stale_identical_sha_does_not_call_api(mock_get):
+    head_sha = "6434d09971" * 4
+
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1=head_sha),
+        builds=[
+            _mock_build(
+                "amd64",
+                "Successfully built",
+                revision_id=head_sha,
+                store_upload_revision=5901,
+            )
+        ],
+    )
+
+    assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=5901) is False
+    mock_get.assert_not_called()
+
+
+@mock.patch("util.gh.requests.get")
+def test_edge_is_stale_missing_edge_sha(mock_get):
+    head_sha = "6434d09971" * 4
+
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1=head_sha),
+        builds=[
+            _mock_build(
+                "amd64",
+                "Successfully built",
+                revision_id=None,
+                store_upload_revision=5901,
+            )
+        ],
+    )
+
+    assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=5901) is True
+    mock_get.assert_not_called()
+
+
+@mock.patch("util.gh.requests.get")
+def test_edge_is_stale_missing_recipe_sha(mock_get):
+    recipe = mock.Mock(
+        git_ref=mock.Mock(commit_sha1=None),
+        builds=[
+            _mock_build(
+                "amd64",
+                "Successfully built",
+                revision_id="cd66c8a238" * 4,
+                store_upload_revision=5901,
+            )
+        ],
+    )
+    assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=5901) is True
+    mock_get.assert_not_called()
+
+
+def test_edge_is_stale_no_edge_revision():
+    recipe = mock.Mock()
+    assert lp.edge_is_stale(recipe, arch="amd64", edge_revision=None) is False

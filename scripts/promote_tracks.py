@@ -285,7 +285,7 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
                 if retried or lp.edge_is_stale(recipe, arch=arch, edge_revision=revision):
                     chan_log.info(
                         "Skipping promotion of stale edge rev=%-5s arch=%s "
-                        "(recipe git_ref ahead or latest build failed/pending)",
+                        "(recipe git_ref not contained in edge or latest build failed/pending)",
                         revision,
                         arch,
                     )
