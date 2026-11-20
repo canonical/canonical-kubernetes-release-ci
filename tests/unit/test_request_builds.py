@@ -7,11 +7,11 @@ import request_builds
 
 @mock.patch("request_builds.lp.snap_recipe")
 @mock.patch("request_builds.lp.retry_failed_builds")
-@mock.patch("request_builds.util.flavors", return_value=["classic"])
+@mock.patch("request_builds.util.variants", return_value=["classic"])
 @mock.patch("request_builds.repo.clone")
 @mock.patch("request_builds.lp.client")
 def test_rebuild_branches_retry_failed_mode(
-    mock_client, mock_clone, _mock_flavors, mock_retry_failed, mock_snap_recipe, tmp_path: Path
+    mock_client, mock_clone, _mock_variants, mock_retry_failed, mock_snap_recipe, tmp_path: Path
 ):
     ver_dir = tmp_path / "build-scripts" / "components" / "kubernetes"
     ver_dir.mkdir(parents=True)

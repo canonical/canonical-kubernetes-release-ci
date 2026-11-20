@@ -18,25 +18,24 @@ USAGE = f"./{Path(__file__).name} [options]"
 DESCRIPTION = """Ensure snap channels and LP recipes for the specified branch."""
 
 
-def ensure_snap_channels(flavour: str, ver: semver.Version, tip: bool, dry_run: bool) -> list[str]:
+def ensure_snap_channels(variant: str, ver: semver.Version, tip: bool, dry_run: bool) -> list[str]:
     """Ensure snap channels for the specified version."""
     channels = []
     if tip:
-        channels += [f"latest/edge/{flavour}"]
-        if flavour == "classic":
+        channels += [f"latest/edge/{variant}"]
+        if variant == "classic":
             channels += ["latest/edge"]
+    elif variant == "strict":
+        channels += [f"{ver.major}.{ver.minor}-classic/edge/strict"]
     else:
-        name = f"{ver.major}.{ver.minor}"
-        name += f"-{flavour}" if flavour != "strict" else ""
-        track = "edge"
+        name = f"{ver.major}.{ver.minor}-{variant}"
         if ver.prerelease:
-            track = util.upstream_prerelease_to_snap_track(ver.prerelease)
+            risk = util.upstream_prerelease_to_snap_track(ver.prerelease)
         else:
             # Stable release, push to "edge" and go through the usual
             # promotion workflow.
-            track = "edge"
-        channels += [f"{name}/{track}"]
-
+            risk = "edge"
+        channels += [f"{name}/{risk}"]
     # Only the tracks (e.g. 1.33-classic) need to be created in the snapstore.
     # The channels (e.g. latest/edge/classic) will be opened automatically.
     # Ensure each track is tested only once.
@@ -50,7 +49,7 @@ def ensure_snap_channels(flavour: str, ver: semver.Version, tip: bool, dry_run: 
 
 
 def ensure_lp_recipe(
-    flavour: str, ver: semver.Version, channels: list[str], tip: bool, dry_run: bool
+    variant: str, ver: semver.Version, channels: list[str], tip: bool, dry_run: bool
 ) -> str:
     """Confirm LP Snap Recipe settings.
 
@@ -58,15 +57,9 @@ def ensure_lp_recipe(
     * Ensure LP recipes are building from correct branches.
     * Ensure LP recipes are pushing to the correct snap channels.
     """
-    recipe_name = util.recipe_name(flavour, ver, tip)
+    recipe_name = util.recipe_name(variant, ver, tip)
 
-    if flavour == "strict":
-        LOG.warning(
-            "Disabling snap auto-build and store upload for 'strict' flavor, which is currently unsupported."
-        )
-        auto_build = False
-        store_upload = False
-    elif (ver.major, ver.minor) in util.DISABLED_TRACKS:
+    if (ver.major, ver.minor) in util.DISABLED_TRACKS:
         LOG.warning(
             "Disabling snap auto-build and store upload for disabled track %s.%s.",
             ver.major,
@@ -79,21 +72,21 @@ def ensure_lp_recipe(
         store_upload = True
 
     if ver.prerelease:
-        if flavour != "classic":
+        if variant != "classic":
             raise Exception(
-                f"Unsupported pre-release flavour: {flavour}, only 'classic' "
+                f"Unsupported pre-release variant: {variant}, only 'classic' "
                 "pre-releases are supported."
             )
         # Use a single branch for all pre-releases of a given risk level,
         # e.g. v1.33.0-alpha.0 -> autoupdate/v1.33.0-alpha
         prerelease = ver.prerelease.split(".")[0]
-        flavor_branch = f"autoupdate/v{ver.major}.{ver.minor}.{ver.patch}-{prerelease}"
+        variant_branch = f"autoupdate/v{ver.major}.{ver.minor}.{ver.patch}-{prerelease}"
     elif tip:
-        flavor_branch = "main" if flavour == "classic" else f"autoupdate/{flavour}"
-    elif flavour == "classic":
-        flavor_branch = f"release-{ver.major}.{ver.minor}"
+        variant_branch = "main" if variant == "classic" else f"autoupdate/{variant}"
+    elif variant == "classic":
+        variant_branch = f"release-{ver.major}.{ver.minor}"
     else:
-        flavor_branch = f"autoupdate/release-{ver.major}.{ver.minor}-{flavour}"
+        variant_branch = f"autoupdate/release-{ver.major}.{ver.minor}-{variant}"
 
     if tip:
         # Launchpad channels ignore the latest fields
@@ -102,14 +95,14 @@ def ensure_lp_recipe(
     LOG.info(
         "Ensure LP recipe %s from %s pushes to %s",
         recipe_name,
-        flavor_branch,
+        variant_branch,
         ",".join(channels),
     )
     client = lp.client()
     lp_project = client.projects[util.SNAP_NAME]
     lp_owner = client.people[lp.OWNER]
     lp_repo = client.git_repositories.getDefaultRepository(target=lp_project)
-    lp_ref = lp_repo.getRefByPath(path=flavor_branch)
+    lp_ref = lp_repo.getRefByPath(path=variant_branch)
     lp_archive = client.archives.getByReference(reference="ubuntu")
     lp_snappy_series = client.snappy_serieses.getByName(name="16")
     manifest = dict(  # noqa: C408
@@ -117,7 +110,7 @@ def ensure_lp_recipe(
         auto_build_archive=lp_archive,
         auto_build_pocket="Updates",
         auto_build_channels={"snapcraft": "8.x/stable"},
-        description=f"Recipe for {util.SNAP_NAME} {flavor_branch}",
+        description=f"Recipe for {util.SNAP_NAME} {variant_branch}",
         git_ref=lp_ref,
         information_type="Public",
         name=recipe_name,
@@ -171,7 +164,7 @@ def ensure_lp_recipe(
 
 
 def prepare_track_builds(branch: str, args: argparse.Namespace):
-    """Prepare all flavour branches to be built.
+    """Prepare all variant branches to be built.
 
     * Ensure snap channels are available in the snapstore.
     * Ensure LP recipes are available in the snapstore.
@@ -182,19 +175,19 @@ def prepare_track_builds(branch: str, args: argparse.Namespace):
         version_file = dir / "build-scripts/components/kubernetes/version"
         branch_ver = version_file.read_text().strip()
         ver = semver.Version.parse(branch_ver.strip("v"))
-        flavors = util.flavors(dir)
+        variants = util.variants(dir)
 
         LOG.info("Current version detected %s", branch_ver)
         tip = branch == "main"
-        for flavour in flavors:
-            if ver.prerelease and flavour != "classic":
+        for variant in variants:
+            if ver.prerelease and variant != "classic":
                 LOG.info(
-                    f"Ignoring pre-release flavour: {flavour}, only 'classic' "
+                    f"Ignoring pre-release variant: {variant}, only 'classic' "
                     "pre-releases are supported."
                 )
                 continue
-            channels = ensure_snap_channels(flavour, ver, tip, args.dry_run)
-            ensure_lp_recipe(flavour, ver, channels, tip, args.dry_run)
+            channels = ensure_snap_channels(variant, ver, tip, args.dry_run)
+            ensure_lp_recipe(variant, ver, channels, tip, args.dry_run)
 
 
 def main():
