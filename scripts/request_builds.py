@@ -18,7 +18,7 @@ DESCRIPTION = """Request all builds with launchpad recipes"""
 
 
 def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
-    """Prepare all flavour branches to be built.
+    """Prepare all variant branches to be built.
 
     * Ensure snap channels are available in the snapstore.
     * Ensure LP recipes are available in the snapstore.
@@ -41,9 +41,9 @@ def rebuild_branches(branches: Iterable[str], args: argparse.Namespace):
                 LOG.info("  Skipping disabled track %s.%s", ver.major, ver.minor)
                 continue
 
-            flavors = util.flavors(dir)
-            for flavor in flavors:
-                recipe_name = util.recipe_name(flavor, ver, tip)
+            variants = util.variants(dir)
+            for variant in variants:
+                recipe_name = util.recipe_name(variant, ver, tip)
                 LOG.info("  Searching for recipe %s", recipe_name)
                 if recipe := lp.snap_recipe(owner, recipe_name):
                     if getattr(args, "retry_failed", False):
