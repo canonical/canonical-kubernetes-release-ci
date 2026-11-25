@@ -22,19 +22,19 @@ DISABLED_TRACKS: set[tuple[int, int]] = set()
 EXEC_TIMEOUT = 60
 
 
-def flavors(path: str) -> list[str]:
-    """Return a sorted list of available flavors in the given directory."""
+def variants(path: str | Path) -> list[str]:
+    """Return a sorted list of available variants in the given directory."""
     patch_dir = Path("build-scripts/patches")
     output = repo.ls_tree(path, patch_dir)
     patches = {Path(f).relative_to(patch_dir).parents[0] for f in output}
     return sorted([p.name for p in patches] + ["classic"])
 
 
-def recipe_name(flavor: str, ver: semver.Version, tip: bool) -> str:
-    """Return the snap recipe name for the given flavor and version."""
+def recipe_name(variant: str, ver: semver.Version, tip: bool) -> str:
+    """Return the snap recipe name for the given variant and version."""
     if tip:
-        return f"{SNAP_NAME}-snap-tip-{flavor}"
-    return f"{SNAP_NAME}-snap-{ver.major}.{ver.minor}-{flavor}"
+        return f"{SNAP_NAME}-snap-tip-{variant}"
+    return f"{SNAP_NAME}-snap-{ver.major}.{ver.minor}-{variant}"
 
 
 def setup_logging(args: argparse.Namespace):

@@ -6,31 +6,31 @@ import util.util as util
 
 
 @mock.patch("util.repo.ls_tree")
-def test_flavors(mock_ls_tree):
+def test_variants(mock_ls_tree):
     mock_ls_tree.return_value = [
-        "build-scripts/patches/flavor1/patch1",
-        "build-scripts/patches/flavor2/patch2",
+        "build-scripts/patches/variant1/patch1",
+        "build-scripts/patches/variant2/patch2",
     ]
-    expected = ["classic", "flavor1", "flavor2"]
-    result = util.flavors("some_dir")
+    expected = ["classic", "variant1", "variant2"]
+    result = util.variants("some_dir")
     assert result == expected
 
 
 def test_recipe_name_tip():
     ver = semver.Version.parse("1.2.3")
-    flavor = "flavor1"
+    variant = "variant1"
     tip = True
-    expected = "k8s-snap-tip-flavor1"
-    result = util.recipe_name(flavor, ver, tip)
+    expected = "k8s-snap-tip-variant1"
+    result = util.recipe_name(variant, ver, tip)
     assert result == expected
 
 
 def test_recipe_name_non_tip():
     ver = semver.Version.parse("1.2.3")
-    flavor = "flavor1"
+    variant = "variant1"
     tip = False
-    expected = "k8s-snap-1.2-flavor1"
-    result = util.recipe_name(flavor, ver, tip)
+    expected = "k8s-snap-1.2-variant1"
+    result = util.recipe_name(variant, ver, tip)
     assert result == expected
 
 
