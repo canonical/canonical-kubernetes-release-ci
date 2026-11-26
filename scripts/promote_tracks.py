@@ -406,6 +406,7 @@ def _create_arch_proposals(
             proposal["branch"] = lp.branch_from_track(util.SNAP_NAME, track)
             proposal["upgrade-channels"] = _build_upgrade_channels(channel_info, channels)
             proposal["revision"] = revision
+            proposal["version"] = channel_info.version
             proposal["track"] = track
             proposal["next-risk"] = next_risk
             proposal["snap-channel"] = final_channel
@@ -561,6 +562,44 @@ def _proposal_channel(p: dict) -> str:
     return p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
 
 
+def _one_per_arch(channel: str, group: list[dict]) -> list[dict]:
+    """Keep the newest proposal per arch.
+
+    The new-stable fast path and an aged lower risk can both target the same channel.
+    """
+    newest: dict[str, dict] = {}
+    for p in group:
+        kept = newest.get(p.get("arch", "unknown"))
+        if kept is None or int(p["revision"]) > int(kept["revision"]):
+            newest[p.get("arch", "unknown")] = p
+    for p in group:
+        if p is not newest[p.get("arch", "unknown")]:
+            LOG.info("Dropping duplicate %s r%s for %s", p.get("arch"), p["revision"], channel)
+    return list(newest.values())
+
+
+def _unproposed_arches(
+    channel: str,
+    group: list[dict],
+    channel_map: dict[str, dict[str, Channel]],
+    ignored_arches: set[str],
+) -> list[str]:
+    """Describe arches that releasing `group` would leave on another version in `channel`."""
+    proposed = {p.get("arch") for p in group}
+    versions = {p.get("version") for p in group}
+    reasons = []
+    for arch, channels in sorted(channel_map.items()):
+        current = channels.get(channel)
+        if arch in proposed or arch in ignored_arches or not current or not current.revision:
+            continue
+        if current.version not in versions:
+            reasons.append(
+                f"{arch} (r{current.revision}, {current.version}): no approved proposal, "
+                f"would stay behind {'/'.join(sorted(map(str, versions)))}"
+            )
+    return reasons
+
+
 def release_channel_group(
     channel: str,
     group: list[dict],
@@ -612,7 +651,9 @@ def promote_evaluated_proposals(
 ) -> list[dict]:
     """Evaluate channel groups and promote all approved proposals.
 
-    Raises ChannelReleaseError if any approved channel could not be fully released.
+    A channel is only released when no other published arch would be left on a different
+    version. Returns the released proposals. Raises ChannelReleaseError if any approved
+    channel could not be fully released.
     """
     test_results = load_test_results(results_dir)
     approved, blocked = evaluate_channel_promotions(proposals, test_results)
@@ -621,9 +662,16 @@ def promote_evaluated_proposals(
     for p in approved:
         groups[_proposal_channel(p)].append(p)
 
-    channel_map = _create_channel_map() if groups and not dry_run else {}
+    channel_map = _create_channel_map() if groups else {}
+    ignored_arches = set(os.getenv("IGNORE_ARCHES", "").split())
+    released: list[dict] = []
     failures: dict[str, str] = {}
     for channel, group in groups.items():
+        group = _one_per_arch(channel, group)
+        if missing := _unproposed_arches(channel, group, channel_map, ignored_arches):
+            LOG.warning("Blocked promotion to %s: %s", channel, "; ".join(missing))
+            blocked[channel] = missing
+            continue
         previous: dict[str, Optional[int]] = {}
         for p in group:
             arch = p.get("arch", "unknown")
@@ -632,11 +680,13 @@ def promote_evaluated_proposals(
         if error := release_channel_group(channel, group, previous, dry_run=dry_run):
             LOG.error("Failed to promote %s: %s", channel, error)
             failures[channel] = error
+        else:
+            released.extend(group)
 
     LOG.info(
-        "Promotion summary: %d/%d proposals approved across %d channels "
+        "Promotion summary: %d/%d proposals released across %d channels "
         "(%d channels blocked, %d failed to release)",
-        len(approved),
+        len(released),
         len(proposals),
         len(groups),
         len(blocked),
@@ -646,7 +696,7 @@ def promote_evaluated_proposals(
         raise ChannelReleaseError(
             "; ".join(f"{channel}: {error}" for channel, error in failures.items())
         )
-    return approved
+    return released
 
 
 def release_revision(args):

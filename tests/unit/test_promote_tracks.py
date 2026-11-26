@@ -96,6 +96,7 @@ def _expected_proposals(track, next_risk, risk, revision, upgrade_channels=None)
             "snap-channel": f"{track}/{next_risk}",
             "track": track,
             "upgrade-channels": upgrade_channels,
+            "version": "v1.31.0",
         }
     ]
 
@@ -1070,8 +1071,80 @@ def test_promote_evaluated_proposals(tmp_path: Path):
         mock_release.assert_called_once_with(10, "1.36-classic/beta", dry_run=False)
 
 
-def _channel(revision):
-    return mock.Mock(revision=revision)
+def _channel(revision, version="v1.36.6"):
+    return mock.Mock(revision=revision, version=version)
+
+
+def _passing(tmp_path: Path, proposals: list[dict]) -> None:
+    for p in proposals:
+        (tmp_path / f"{p['name']}.json").write_text(
+            json.dumps({"name": p["name"], "passed": True})
+        )
+
+
+def test_promote_keeps_newest_duplicate_per_arch(tmp_path: Path):
+    # Fast path from edge and an aged beta both target candidate for amd64.
+    proposals = [
+        {
+            "name": "beta",
+            "snap-channel": "1.37-classic/candidate",
+            "arch": "amd64",
+            "revision": 6050,
+            "version": "v1.37.1",
+        },
+        {
+            "name": "edge",
+            "snap-channel": "1.37-classic/candidate",
+            "arch": "amd64",
+            "revision": 6062,
+            "version": "v1.37.1",
+        },
+    ]
+    _passing(tmp_path, proposals)
+    channel_map = {"amd64": {"1.37-classic/candidate": _channel(5822, "v1.37.1")}}
+    with (
+        mock.patch("promote_tracks.release_snap") as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value=channel_map),
+    ):
+        released = promote_tracks.promote_evaluated_proposals(proposals, tmp_path)
+    assert released == [proposals[1]]
+    mock_release.assert_called_once_with(6062, "1.37-classic/candidate", dry_run=False)
+
+
+@pytest.mark.parametrize(
+    "arm64_channel, ignore_arches, blocked",
+    [
+        (_channel(5830, "v1.34.12"), "", True),  # arm64 would stay on the old version
+        (_channel(5830, "v1.34.13"), "", False),  # arm64 already on the new version
+        (None, "", False),  # arm64 never published in this channel
+        (_channel(5830, "v1.34.12"), "arm64", False),  # arm64 explicitly ignored
+    ],
+)
+def test_promote_blocks_channel_missing_an_arch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arm64_channel, ignore_arches, blocked
+):
+    monkeypatch.setenv("IGNORE_ARCHES", ignore_arches)
+    proposals = [
+        {
+            "name": "a",
+            "snap-channel": "1.34-classic/candidate",
+            "arch": "amd64",
+            "revision": 6066,
+            "version": "v1.34.13",
+        },
+    ]
+    _passing(tmp_path, proposals)
+    channel_map = {
+        "amd64": {"1.34-classic/candidate": _channel(5945, "v1.34.12")},
+        "arm64": {"1.34-classic/candidate": arm64_channel} if arm64_channel else {},
+    }
+    with (
+        mock.patch("promote_tracks.release_snap") as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value=channel_map),
+    ):
+        released = promote_tracks.promote_evaluated_proposals(proposals, tmp_path)
+    assert released == ([] if blocked else proposals)
+    assert mock_release.called is not blocked
 
 
 def test_promote_rolls_back_partially_released_channel(tmp_path: Path):

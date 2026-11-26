@@ -133,6 +133,8 @@ jobs:
         env:
           PROPOSALS: ${{ needs.promotion-proposal.outputs.proposals }}
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
+          # Ignored arches don't block a channel from being released for the others.
+          IGNORE_ARCHES: ${{ inputs.ignore_architectures }}
         run: |
           tox -e runner -- \
             scripts/promote_tracks.py $DRY_RUN_FLAG \
