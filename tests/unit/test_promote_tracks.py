@@ -1,7 +1,9 @@
 import argparse
 import contextlib
 import json
+import os
 import re
+import shlex
 import shutil
 import subprocess
 import unittest.mock as mock
@@ -725,3 +727,48 @@ def test_download_snap(tmp_path: Path):
     ):
         promote_tracks.download_snap(argparse.Namespace(revision="6058", snap_name="k8s"))
         assert mock_run.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "preset, channels, expected",
+    [
+        (
+            {},
+            None,
+            {
+                "TEST_VERSION_UPGRADE_MIN_RELEASE": "1.31",
+                "TEST_DEFAULT_WAIT_RETRIES": "200",
+                "TEST_DEFAULT_WAIT_DELAY_S": "10",
+            },
+        ),
+        (
+            {"TEST_DEFAULT_WAIT_RETRIES": "5", "TEST_VERSION_UPGRADE_CHANNELS": "old"},
+            "1.35-classic/stable 1.36-classic/edge@6058",
+            {
+                "TEST_DEFAULT_WAIT_RETRIES": "5",
+                "TEST_VERSION_UPGRADE_CHANNELS": "1.35-classic/stable 1.36-classic/edge@6058",
+            },
+        ),
+    ],
+)
+def test_execute_upgrade_test_environment(monkeypatch, preset, channels, expected):
+    for key in (
+        "TEST_VERSION_UPGRADE_MIN_RELEASE",
+        "TEST_DEFAULT_WAIT_RETRIES",
+        "TEST_DEFAULT_WAIT_DELAY_S",
+        "TEST_VERSION_UPGRADE_CHANNELS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in preset.items():
+        monkeypatch.setenv(key, value)
+    seen = {}
+
+    def run_tox(args, tox, test_path, ref=None):
+        seen.update({k: os.environ.get(k) for k in expected})
+        assert tox == shlex.split("tox -e integration -- -k test_version_upgrades")
+
+    with mock.patch("promote_tracks._run_tox_tests", side_effect=run_tox) as mock_run:
+        promote_tracks.execute_upgrade_test(argparse.Namespace(channels=channels))
+
+    mock_run.assert_called_once()
+    assert seen == expected
