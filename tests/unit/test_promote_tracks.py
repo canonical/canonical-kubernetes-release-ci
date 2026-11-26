@@ -1034,16 +1034,112 @@ def test_evaluate_channel_promotions_single_arch_releasable():
     assert blocked == {}
 
 
+def test_release_snap_and_dry_run():
+    with mock.patch("promote_tracks.subprocess.run") as mock_run:
+        promote_tracks.release_snap(6058, "1.36-classic/beta", dry_run=True)
+        mock_run.assert_not_called()
+
+        promote_tracks.release_snap(6058, "1.36-classic/beta", dry_run=False)
+        mock_run.assert_called_once_with(
+            ["/snap/bin/snapcraft", "release", "k8s", "6058", "1.36-classic/beta"],
+            check=True,
+            timeout=promote_tracks.SNAPCRAFT_RELEASE_TIMEOUT_S,
+        )
+
+    mock_run = mock.Mock(side_effect=[subprocess.CalledProcessError(1, ["cmd"]), None])
+    with (
+        mock.patch("promote_tracks.subprocess.run", mock_run),
+        mock.patch("promote_tracks.wait_fixed", return_value=lambda _: 0),
+    ):
+        promote_tracks.release_snap(6058, "1.36-classic/beta", dry_run=False)
+        assert mock_run.call_count == 2
+
+
 def test_promote_evaluated_proposals(tmp_path: Path):
     proposals = [
         {"name": "p1", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 10},
     ]
     (tmp_path / "p1.json").write_text(json.dumps({"name": "p1", "passed": True}))
 
-    with mock.patch("promote_tracks.release_snap") as mock_release:
+    with (
+        mock.patch("promote_tracks.release_snap") as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value={}),
+    ):
         approved = promote_tracks.promote_evaluated_proposals(proposals, tmp_path, dry_run=False)
         assert approved == proposals
         mock_release.assert_called_once_with(10, "1.36-classic/beta", dry_run=False)
+
+
+def _channel(revision):
+    return mock.Mock(revision=revision)
+
+
+def test_promote_rolls_back_partially_released_channel(tmp_path: Path):
+    proposals = [
+        {"name": "a", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
+        {"name": "b", "snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
+        {"name": "c", "snap-channel": "1.35-classic/beta", "arch": "amd64", "revision": 6000},
+    ]
+    for name in "abc":
+        (tmp_path / f"{name}.json").write_text(json.dumps({"name": name, "passed": True}))
+    channel_map = {
+        "amd64": {"1.36-classic/beta": _channel(5934), "1.35-classic/beta": _channel(5900)},
+        "arm64": {"1.36-classic/beta": _channel(5935)},
+    }
+
+    def release(revision, channel, dry_run=False):
+        if revision == 6059:
+            raise subprocess.CalledProcessError(1, ["snapcraft"])
+
+    with (
+        mock.patch("promote_tracks.release_snap", side_effect=release) as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value=channel_map),
+        pytest.raises(promote_tracks.ChannelReleaseError, match="amd64: rolled back to r5934"),
+    ):
+        promote_tracks.promote_evaluated_proposals(proposals, tmp_path, dry_run=False)
+
+    assert mock_release.call_args_list == [
+        mock.call(6058, "1.36-classic/beta", dry_run=False),
+        mock.call(6059, "1.36-classic/beta", dry_run=False),
+        mock.call(5934, "1.36-classic/beta", dry_run=False),
+        mock.call(5935, "1.36-classic/beta", dry_run=False),
+        mock.call(6000, "1.35-classic/beta", dry_run=False),
+    ]
+
+
+def test_release_channel_group_reports_arch_without_previous_revision():
+    group = [
+        {"snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
+        {"snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
+    ]
+    side_effect = [None, subprocess.CalledProcessError(1, ["snapcraft"]), None]
+    with mock.patch("promote_tracks.release_snap", side_effect=side_effect) as mock_release:
+        error = promote_tracks.release_channel_group(
+            "1.36-classic/beta", group, {"amd64": None, "arm64": 5935}
+        )
+    assert error is not None
+    assert "amd64: no previous revision in 1.36-classic/beta, may remain at r6058" in error
+    assert "arm64: rolled back to r5935" in error
+    assert mock_release.call_count == 3
+
+
+def test_release_channel_group_rolls_back_on_store_timeout():
+    group = [
+        {"snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
+        {"snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
+    ]
+    side_effect = [None, subprocess.TimeoutExpired(["snapcraft"], 300), None, None]
+    with mock.patch("promote_tracks.release_snap", side_effect=side_effect) as mock_release:
+        error = promote_tracks.release_channel_group(
+            "1.36-classic/beta", group, {"amd64": 5934, "arm64": 5935}
+        )
+    assert error is not None
+    # The timed-out arm64 release may have been applied, so it is restored too.
+    assert "amd64: rolled back to r5934; arm64: rolled back to r5935" in error
+    assert mock_release.call_args_list[2:] == [
+        mock.call(5934, "1.36-classic/beta", dry_run=False),
+        mock.call(5935, "1.36-classic/beta", dry_run=False),
+    ]
 
 
 def test_release_revision_cli_modes(tmp_path: Path):

@@ -461,15 +461,26 @@ def _create_arch_proposals(
     return proposals
 
 
+# Upper bound for a single `snapcraft release` call so a stuck Store request can't block rollback.
+SNAPCRAFT_RELEASE_TIMEOUT_S = 300
+
+
 def release_snap(revision: int | str, channel: str, dry_run: bool = False):
-    """Release a single snap revision to a channel."""
+    """Release a single snap revision to a channel with retries."""
     LOG.info("Promote r%s to %s%s", revision, channel, " (dry-run)" if dry_run else "")
     if dry_run:
         return
-    subprocess.run(
-        ["/snap/bin/snapcraft", "release", util.SNAP_NAME, str(revision), channel],
-        check=True,
-    )
+    for attempt in Retrying(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(2),
+        reraise=True,
+    ):
+        with attempt:
+            subprocess.run(
+                ["/snap/bin/snapcraft", "release", util.SNAP_NAME, str(revision), channel],
+                check=True,
+                timeout=SNAPCRAFT_RELEASE_TIMEOUT_S,
+            )
 
 
 def load_test_results(results_dir: Optional[str | Path]) -> dict[str, dict]:
@@ -542,24 +553,96 @@ def evaluate_channel_promotions(
     return approved_proposals, blocked_channels
 
 
+class ChannelReleaseError(Exception):
+    """Raised when one or more channels could not be released for every architecture."""
+
+
+def _proposal_channel(p: dict) -> str:
+    return p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+
+
+def release_channel_group(
+    channel: str,
+    group: list[dict],
+    previous: dict[str, Optional[int]],
+    dry_run: bool = False,
+) -> Optional[str]:
+    """Release every proposal of one channel, rolling back on a partial failure.
+
+    `previous` maps each arch to the revision it had in `channel` before this run.
+    Returns None on success, otherwise a description of the failure and rollback.
+    """
+    # A failed call may still have been applied by the Store, so roll back every attempted arch.
+    attempted: list[dict] = []
+    for p in group:
+        attempted.append(p)
+        try:
+            release_snap(p["revision"], channel, dry_run=dry_run)
+        except subprocess.SubprocessError as e:
+            failed = f"{p.get('arch')} (r{p['revision']}): {e}"
+            break
+    else:
+        return None
+
+    outcomes = []
+    for p in attempted:
+        arch = p.get("arch", "unknown")
+        prev = previous.get(arch)
+        if prev is None:
+            outcomes.append(
+                f"{arch}: no previous revision in {channel}, may remain at r{p['revision']}"
+            )
+            continue
+        try:
+            release_snap(prev, channel, dry_run=dry_run)
+            outcomes.append(f"{arch}: rolled back to r{prev}")
+        except subprocess.SubprocessError as e:
+            outcomes.append(
+                f"{arch}: rollback to r{prev} failed ({e}), may remain at r{p['revision']}"
+            )
+    rollback = "; ".join(outcomes) if outcomes else "nothing to roll back"
+    return f"release failed for {failed}; {rollback}"
+
+
 def promote_evaluated_proposals(
     proposals: list[dict], results_dir: Optional[str | Path], dry_run: bool = False
 ) -> list[dict]:
-    """Evaluate channel groups and promote all approved proposals."""
+    """Evaluate channel groups and promote all approved proposals.
+
+    Raises ChannelReleaseError if any approved channel could not be fully released.
+    """
     test_results = load_test_results(results_dir)
     approved, blocked = evaluate_channel_promotions(proposals, test_results)
 
+    groups: dict[str, list[dict]] = defaultdict(list)
     for p in approved:
-        channel = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
-        release_snap(p["revision"], channel, dry_run=dry_run)
+        groups[_proposal_channel(p)].append(p)
+
+    channel_map = _create_channel_map() if groups and not dry_run else {}
+    failures: dict[str, str] = {}
+    for channel, group in groups.items():
+        previous: dict[str, Optional[int]] = {}
+        for p in group:
+            arch = p.get("arch", "unknown")
+            current = channel_map.get(arch, {}).get(channel)
+            previous[arch] = current.revision if current else None
+        if error := release_channel_group(channel, group, previous, dry_run=dry_run):
+            LOG.error("Failed to promote %s: %s", channel, error)
+            failures[channel] = error
 
     LOG.info(
-        "Promotion summary: %d/%d proposals approved across %d channels (%d channels blocked)",
+        "Promotion summary: %d/%d proposals approved across %d channels "
+        "(%d channels blocked, %d failed to release)",
         len(approved),
         len(proposals),
-        len({p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}" for p in approved}),
+        len(groups),
         len(blocked),
+        len(failures),
     )
+    if failures:
+        raise ChannelReleaseError(
+            "; ".join(f"{channel}: {error}" for channel, error in failures.items())
+        )
     return approved
 
 
