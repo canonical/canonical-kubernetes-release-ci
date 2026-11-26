@@ -17,7 +17,7 @@ import tempfile
 from collections import defaultdict
 from functools import cached_property
 from pathlib import Path
-from typing import Optional
+from typing import Collection, Optional
 
 import util.k8s as k8s
 import util.lp as lp
@@ -526,9 +526,15 @@ def load_test_results(results_dir: Optional[str | Path]) -> dict[str, dict]:
 
 
 def evaluate_channel_promotions(
-    proposals: list[dict], test_results: dict[str, dict]
+    proposals: list[dict],
+    test_results: dict[str, dict],
+    override_channels: Collection[str] = frozenset(),
 ) -> tuple[list[dict], dict[str, list[str]]]:
-    """Evaluate proposals all-or-nothing per target channel."""
+    """Evaluate proposals all-or-nothing per target channel.
+
+    A channel in `override_channels` is approved regardless of its test results, for a
+    confirmed false negative. It still goes through the atomic, per-arch release below.
+    """
     channel_groups: dict[str, list[dict]] = defaultdict(list)
     for p in proposals:
         channel = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
@@ -560,7 +566,14 @@ def evaluate_channel_promotions(
                     f"{p_arch} (r{p_rev}): tests failed (e2e: {e2e}, upgrade: {upgrade})"
                 )
 
-        if all_passed:
+        if channel in override_channels:
+            approved_proposals.extend(group)
+            LOG.warning(
+                "Overriding test gate for %s: %s",
+                channel,
+                "; ".join(failure_reasons) if failure_reasons else "no failures found",
+            )
+        elif all_passed:
             approved_proposals.extend(group)
             arches = ", ".join(f"{p.get('arch')} (r{p.get('revision')})" for p in group)
             LOG.info("Approved promotion to %s (%d proposal(s)): %s", channel, len(group), arches)
@@ -676,11 +689,14 @@ def promote_evaluated_proposals(
 
     A channel is only released when every proposal is newer than the live revision and no
     other published arch would be left on a different version. If more than one arch has no
-    previous revision in the channel, only one is released this run. Returns the released
-    proposals. Raises ChannelReleaseError if any approved channel could not be fully released.
+    previous revision in the channel, only one is released this run. A channel named in the
+    OVERRIDE_TESTS environment variable is released regardless of its test results. Returns the
+    released proposals. Raises ChannelReleaseError if any approved channel could not be fully
+    released.
     """
     test_results = load_test_results(results_dir)
-    approved, blocked = evaluate_channel_promotions(proposals, test_results)
+    override_channels = set(os.getenv("OVERRIDE_TESTS", "").split())
+    approved, blocked = evaluate_channel_promotions(proposals, test_results, override_channels)
 
     groups: dict[str, list[dict]] = defaultdict(list)
     for p in approved:

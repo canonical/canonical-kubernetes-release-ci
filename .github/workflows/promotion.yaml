@@ -37,6 +37,19 @@ on:
         required: false
         description: |-
           A space separated list of architectures to ignore when proposing promotions
+      override_tests:
+        type: string
+        required: false
+        description: |-
+          A space separated list of target channels (e.g. '1.36-classic/beta') to promote
+          even if their tests failed or are missing, for a confirmed false negative. Leave
+          empty for the normal all-tests-pass gate. The release is still atomic and rolled
+          back on a partial failure.
+      override_reason:
+        type: string
+        required: false
+        description: |-
+          Why override_tests is set, recorded in the workflow log for audit
 
   schedule:
     - cron: '0 0 * * *'  # Runs every midnight
@@ -135,7 +148,17 @@ jobs:
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
           # Ignored arches don't block a channel from being released for the others.
           IGNORE_ARCHES: ${{ inputs.ignore_architectures }}
+          # Channels here skip the all-tests-pass gate; release stays atomic and rolls back.
+          OVERRIDE_TESTS: ${{ inputs.override_tests }}
+          OVERRIDE_REASON: ${{ inputs.override_reason }}
         run: |
+          if [ -n "$OVERRIDE_TESTS" ]; then
+            if [ -z "$OVERRIDE_REASON" ]; then
+              echo "::error::override_tests requires override_reason for the audit log" >&2
+              exit 1
+            fi
+            echo "::warning::Overriding the test gate for: $OVERRIDE_TESTS ($OVERRIDE_REASON)"
+          fi
           tox -e runner -- \
             scripts/promote_tracks.py $DRY_RUN_FLAG \
             promote \

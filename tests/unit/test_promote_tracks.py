@@ -1035,6 +1035,27 @@ def test_evaluate_channel_promotions_single_arch_releasable():
     assert blocked == {}
 
 
+def test_evaluate_channel_promotions_override_releases_failed_channel():
+    proposals = [
+        {"name": "p1", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 10},
+        {"name": "p2", "snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 11},
+    ]
+    test_results = {
+        "p1": {
+            "name": "p1",
+            "passed": False,
+            "e2e_result": "failure",
+            "upgrade_result": "success",
+        },
+        "p2": {"name": "p2", "passed": True},
+    }
+    approved, blocked = promote_tracks.evaluate_channel_promotions(
+        proposals, test_results, override_channels={"1.36-classic/beta"}
+    )
+    assert approved == proposals
+    assert blocked == {}
+
+
 def test_release_snap_and_dry_run():
     with mock.patch("promote_tracks.subprocess.run") as mock_run:
         promote_tracks.release_snap(6058, "1.36-classic/beta", dry_run=True)
@@ -1069,6 +1090,24 @@ def test_promote_evaluated_proposals(tmp_path: Path):
         approved = promote_tracks.promote_evaluated_proposals(proposals, tmp_path, dry_run=False)
         assert approved == proposals
         mock_release.assert_called_once_with(10, "1.36-classic/beta", dry_run=False)
+
+
+def test_promote_evaluated_proposals_override_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("OVERRIDE_TESTS", "1.36-classic/beta")
+    proposals = [
+        {"name": "p1", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 10},
+    ]
+    (tmp_path / "p1.json").write_text(json.dumps({"name": "p1", "passed": False}))
+
+    with (
+        mock.patch("promote_tracks.release_snap") as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value={}),
+    ):
+        released = promote_tracks.promote_evaluated_proposals(proposals, tmp_path, dry_run=False)
+    assert released == proposals
+    mock_release.assert_called_once_with(10, "1.36-classic/beta", dry_run=False)
 
 
 def _channel(revision, version="v1.36.6"):
