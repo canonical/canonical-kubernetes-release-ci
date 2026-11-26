@@ -936,6 +936,7 @@ def test_promote_rolls_back_partially_released_channel(tmp_path: Path):
         mock.call(6058, "1.36-classic/beta", dry_run=False),
         mock.call(6059, "1.36-classic/beta", dry_run=False),
         mock.call(5934, "1.36-classic/beta", dry_run=False),
+        mock.call(5935, "1.36-classic/beta", dry_run=False),
         mock.call(6000, "1.35-classic/beta", dry_run=False),
     ]
 
@@ -945,14 +946,15 @@ def test_release_channel_group_reports_arch_without_previous_revision():
         {"snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
         {"snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
     ]
-    side_effect = [None, subprocess.CalledProcessError(1, ["snapcraft"])]
+    side_effect = [None, subprocess.CalledProcessError(1, ["snapcraft"]), None]
     with mock.patch("promote_tracks.release_snap", side_effect=side_effect) as mock_release:
         error = promote_tracks.release_channel_group(
             "1.36-classic/beta", group, {"amd64": None, "arm64": 5935}
         )
     assert error is not None
-    assert "amd64: no previous revision in 1.36-classic/beta, left at r6058" in error
-    assert mock_release.call_count == 2
+    assert "amd64: no previous revision in 1.36-classic/beta, may remain at r6058" in error
+    assert "arm64: rolled back to r5935" in error
+    assert mock_release.call_count == 3
 
 
 def test_release_channel_group_rolls_back_on_store_timeout():
@@ -960,14 +962,18 @@ def test_release_channel_group_rolls_back_on_store_timeout():
         {"snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
         {"snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
     ]
-    side_effect = [None, subprocess.TimeoutExpired(["snapcraft"], 300), None]
+    side_effect = [None, subprocess.TimeoutExpired(["snapcraft"], 300), None, None]
     with mock.patch("promote_tracks.release_snap", side_effect=side_effect) as mock_release:
         error = promote_tracks.release_channel_group(
             "1.36-classic/beta", group, {"amd64": 5934, "arm64": 5935}
         )
     assert error is not None
-    assert "amd64: rolled back to r5934" in error
-    assert mock_release.call_args_list[-1] == mock.call(5934, "1.36-classic/beta", dry_run=False)
+    # The timed-out arm64 release may have been applied, so it is restored too.
+    assert "amd64: rolled back to r5934; arm64: rolled back to r5935" in error
+    assert mock_release.call_args_list[2:] == [
+        mock.call(5934, "1.36-classic/beta", dry_run=False),
+        mock.call(5935, "1.36-classic/beta", dry_run=False),
+    ]
 
 
 def test_release_revision_cli_modes(tmp_path: Path):

@@ -580,30 +580,34 @@ def release_channel_group(
     `previous` maps each arch to the revision it had in `channel` before this run.
     Returns None on success, otherwise a description of the failure and rollback.
     """
-    released: list[dict] = []
+    # A failed call may still have been applied by the Store, so roll back every attempted arch.
+    attempted: list[dict] = []
     for p in group:
+        attempted.append(p)
         try:
             release_snap(p["revision"], channel, dry_run=dry_run)
         except subprocess.SubprocessError as e:
             failed = f"{p.get('arch')} (r{p['revision']}): {e}"
             break
-        released.append(p)
     else:
         return None
 
-    # Restore the arches already released so the channel stays on one version.
     outcomes = []
-    for p in released:
+    for p in attempted:
         arch = p.get("arch", "unknown")
         prev = previous.get(arch)
         if prev is None:
-            outcomes.append(f"{arch}: no previous revision in {channel}, left at r{p['revision']}")
+            outcomes.append(
+                f"{arch}: no previous revision in {channel}, may remain at r{p['revision']}"
+            )
             continue
         try:
             release_snap(prev, channel, dry_run=dry_run)
             outcomes.append(f"{arch}: rolled back to r{prev}")
         except subprocess.SubprocessError as e:
-            outcomes.append(f"{arch}: rollback to r{prev} failed ({e}), left at r{p['revision']}")
+            outcomes.append(
+                f"{arch}: rollback to r{prev} failed ({e}), may remain at r{p['revision']}"
+            )
     rollback = "; ".join(outcomes) if outcomes else "nothing to roll back"
     return f"release failed for {failed}; {rollback}"
 
