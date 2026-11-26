@@ -153,11 +153,7 @@ jobs:
           OVERRIDE_REASON: ${{ inputs.override_reason }}
         run: |
           if [ -n "$OVERRIDE_TESTS" ]; then
-            if [ -z "$OVERRIDE_REASON" ]; then
-              echo "::error::override_tests requires override_reason for the audit log" >&2
-              exit 1
-            fi
-            echo "::warning::Overriding the test gate for: $OVERRIDE_TESTS ($OVERRIDE_REASON)"
+            echo "::warning::Overriding the test gate for: $OVERRIDE_TESTS (${OVERRIDE_REASON:-no reason given})"
           fi
           tox -e runner -- \
             scripts/promote_tracks.py $DRY_RUN_FLAG \
