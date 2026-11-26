@@ -37,6 +37,19 @@ on:
         required: false
         description: |-
           A space separated list of architectures to ignore when proposing promotions
+      override_tests:
+        type: string
+        required: false
+        description: |-
+          A space separated list of target channels (e.g. '1.36-classic/beta') to promote
+          even if their tests failed or are missing, for a confirmed false negative. Leave
+          empty for the normal all-tests-pass gate. The release is still atomic and rolled
+          back on a partial failure.
+      override_reason:
+        type: string
+        required: false
+        description: |-
+          Why override_tests is set, recorded in the workflow log for audit
 
   schedule:
     - cron: '0 0 * * *'  # Runs every midnight
@@ -107,6 +120,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [promotion-proposal, test-proposal]
     if: always() && needs.promotion-proposal.result == 'success' && needs.promotion-proposal.outputs.proposals && needs.promotion-proposal.outputs.proposals != '[]'
+    # Serialize releases across runs so a rollback never restores a snapshot that another
+    # run has since changed.
+    concurrency:
+      group: snap-promotion-release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python
@@ -128,7 +146,15 @@ jobs:
         env:
           PROPOSALS: ${{ needs.promotion-proposal.outputs.proposals }}
           SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
+          # Ignored arches don't block a channel from being released for the others.
+          IGNORE_ARCHES: ${{ inputs.ignore_architectures }}
+          # Channels here skip the all-tests-pass gate; release stays atomic and rolls back.
+          OVERRIDE_TESTS: ${{ inputs.override_tests }}
+          OVERRIDE_REASON: ${{ inputs.override_reason }}
         run: |
+          if [ -n "$OVERRIDE_TESTS" ]; then
+            echo "::warning::Overriding the test gate for: $OVERRIDE_TESTS (${OVERRIDE_REASON:-no reason given})"
+          fi
           tox -e runner -- \
             scripts/promote_tracks.py $DRY_RUN_FLAG \
             promote \
