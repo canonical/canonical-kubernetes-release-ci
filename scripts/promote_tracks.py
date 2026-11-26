@@ -557,8 +557,10 @@ def compute_test_outcome(
     if isinstance(upgrade_channels, str):
         try:
             channels = json.loads(upgrade_channels) if upgrade_channels.strip() else []
-        except (json.JSONDecodeError, TypeError):
-            channels = []
+        except json.JSONDecodeError:
+            # An unreadable matrix must not count as "no upgrade tests required".
+            LOG.warning("Could not parse upgrade channels %r", upgrade_channels)
+            channels = [upgrade_channels]
     else:
         channels = upgrade_channels or []
 

@@ -700,6 +700,11 @@ def test_compute_test_outcome():
         False,
         False,
     )
+    # A malformed upgrade matrix with a skipped upgrade job fails closed
+    assert promote_tracks.compute_test_outcome("success", "skipped", "[not-json") == (
+        False,
+        False,
+    )
 
 
 def test_record_test_result(tmp_path: Path):
