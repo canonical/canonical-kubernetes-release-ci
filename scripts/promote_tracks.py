@@ -13,6 +13,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from functools import cached_property
 from pathlib import Path
@@ -48,6 +49,15 @@ IGNORE_TRACKS: list[tuple[str, Optional[str]]] = [
     ("latest", None),
 ]
 
+# Default ignore tracks applied for automatic scheduled promotions.
+AUTO_PROMOTION_IGNORE_TRACKS = [
+    r"^1\.\d{2}$",
+    r"^1\.\d{2}-moonray$",
+    r"^1\.30(-.*)?$",
+    r"^1\.31(-.*)?$",
+    r"1\.36-classic:candidate",
+    r"1\.37-classic:candidate",
+]
 # The snap risk levels, used to find the next risk level for a revision.
 RISK_LEVELS = ["edge", "beta", "candidate", "stable"]
 NEXT_RISK = RISK_LEVELS[1:] + [None]
@@ -205,19 +215,92 @@ def _create_channel_map():
     return channel_map
 
 
+def resolve_propose_inputs(args) -> argparse.Namespace:
+    """Resolve propose parameters from CLI arguments and environment variables."""
+    days_edge = getattr(args, "days_in_edge_risk", None)
+    if days_edge is None or days_edge == DAYS_TO_STAY_IN_EDGE:
+        if env_val := os.getenv("DAYS_IN_EDGE_RISK"):
+            with contextlib.suppress(ValueError):
+                args.days_in_edge_risk = int(env_val)
+
+    days_beta = getattr(args, "days_in_beta_risk", None)
+    if days_beta is None or days_beta == DAYS_TO_STAY_IN_BETA:
+        if env_val := os.getenv("DAYS_IN_BETA_RISK"):
+            with contextlib.suppress(ValueError):
+                args.days_in_beta_risk = int(env_val)
+
+    days_cand = getattr(args, "days_in_candidate_risk", None)
+    if days_cand is None or days_cand == DAYS_TO_STAY_IN_CANDIDATE:
+        if env_val := os.getenv("DAYS_IN_CANDIDATE_RISK"):
+            with contextlib.suppress(ValueError):
+                args.days_in_candidate_risk = int(env_val)
+
+    if not getattr(args, "ignore_arches", None):
+        if env_arches := os.getenv("IGNORE_ARCHES"):
+            args.ignore_arches = env_arches.split()
+
+    if getattr(args, "ignore_tracks", None) is None:
+        if env_tracks := os.getenv("IGNORE_TRACKS"):
+            args.ignore_tracks = [_parse_ignore_track(t) for t in env_tracks.split() if t]
+        elif os.getenv("GITHUB_EVENT_NAME") == "schedule":
+            args.ignore_tracks = [_parse_ignore_track(t) for t in AUTO_PROMOTION_IGNORE_TRACKS]
+        else:
+            args.ignore_tracks = []
+
+    return args
+
+
 def create_proposal(args):
+    args = resolve_propose_inputs(args)
     channel_map = _create_channel_map()
     proposals = []
+    stale_skips: dict[str, list[str]] = defaultdict(list)
 
     for arch, channels in channel_map.items():
-        proposals.extend(_create_arch_proposals(arch, channels, args))
+        proposals.extend(_create_arch_proposals(arch, channels, args, stale_skips=stale_skips))
+
+    if stale_skips:
+        filtered = []
+        for p in proposals:
+            chan = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+            if chan in stale_skips:
+                skipped = ", ".join(sorted(set(stale_skips[chan])))
+                LOG.warning(
+                    "Dropping %s proposal for arch %s because %s was skipped "
+                    "(stale edge or pending/failed build)",
+                    chan,
+                    p.get("arch"),
+                    skipped,
+                )
+            else:
+                filtered.append(p)
+        proposals = filtered
+
+    ignored_arches = set(getattr(args, "ignore_arches", []))
+    if ignored_arches:
+        logged_channels = set()
+        for p in proposals:
+            chan = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+            if chan not in logged_channels:
+                for ign_arch in sorted(ignored_arches):
+                    if ign_arch in channel_map and any(
+                        name.startswith(f"{p.get('track')}/") for name in channel_map[ign_arch]
+                    ):
+                        LOG.info(
+                            "Allowing promotion for %s without %s as it is in --ignore-arches",
+                            chan,
+                            ign_arch,
+                        )
+                logged_channels.add(chan)
 
     if args.gh_action:
         core.set_output("proposals", json.dumps(proposals))
     return proposals
 
 
-def _create_arch_proposals(arch, channels: dict[str, Channel], args):
+def _create_arch_proposals(
+    arch, channels: dict[str, Channel], args, stale_skips: Optional[dict[str, list[str]]] = None
+):
     proposals = []
     ignored_tracks = IGNORE_TRACKS + getattr(args, "ignore_tracks", [])
     ignored_arches = getattr(args, "ignore_arches", [])
@@ -289,6 +372,11 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
                         revision,
                         arch,
                     )
+                    if stale_skips is not None:
+                        stale_skips[f"{track}/{next_risk}"].append(arch)
+                        if not bool(channels.get(f"{track}/stable", EMPTY_CHANNEL).revision):
+                            stale_skips[f"{track}/candidate"].append(arch)
+                            stale_skips[f"{track}/stable"].append(arch)
                     continue
 
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -381,17 +469,349 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
     return proposals
 
 
-def release_revision(args):
-    # Note: we cannot use `snapcraft promote` here because it does not allow
-    # to promote from edge to beta without manual confirmation.
-    revision, channel = args.snap_revision, args.snap_channel
-    LOG.info("Promote r%s to %s%s", revision, channel, args.dry_run and " (dry-run)" or "")
-    if args.dry_run:
+# Upper bound for a single `snapcraft release` call so a stuck Store request can't block rollback.
+SNAPCRAFT_RELEASE_TIMEOUT_S = 300
+
+
+def release_snap(revision: int | str, channel: str, dry_run: bool = False):
+    """Release a single snap revision to a channel with retries."""
+    LOG.info("Promote r%s to %s%s", revision, channel, " (dry-run)" if dry_run else "")
+    if dry_run:
         return
-    subprocess.run(
-        ["/snap/bin/snapcraft", "release", util.SNAP_NAME, revision, channel],
-        check=True,
+    for attempt in Retrying(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(2),
+        reraise=True,
+    ):
+        with attempt:
+            subprocess.run(
+                ["/snap/bin/snapcraft", "release", util.SNAP_NAME, str(revision), channel],
+                check=True,
+                timeout=SNAPCRAFT_RELEASE_TIMEOUT_S,
+            )
+
+
+def load_test_results(results_dir: Optional[str | Path]) -> dict[str, dict]:
+    """Load test outcome payloads from all JSON files in results directory."""
+    results: dict[str, dict] = {}
+    if not results_dir:
+        return results
+    results_path = Path(results_dir)
+    if not results_path.is_dir():
+        LOG.warning("Test results directory does not exist: %s", results_dir)
+        return results
+    for json_file in results_path.rglob("*.json"):
+        try:
+            with open(json_file) as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "name" in data:
+                results[data["name"]] = data
+        except (OSError, json.JSONDecodeError) as e:
+            LOG.warning("Could not parse test result file %s: %s", json_file, e)
+    return results
+
+
+def evaluate_channel_promotions(
+    proposals: list[dict], test_results: dict[str, dict]
+) -> tuple[list[dict], dict[str, list[str]]]:
+    """Evaluate proposals all-or-nothing per target channel."""
+    channel_groups: dict[str, list[dict]] = defaultdict(list)
+    for p in proposals:
+        channel = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+        channel_groups[channel].append(p)
+
+    approved_proposals: list[dict] = []
+    blocked_channels: dict[str, list[str]] = {}
+
+    for channel, group in channel_groups.items():
+        all_passed = True
+        failure_reasons: list[str] = []
+
+        for p in group:
+            p_name = p.get("name")
+            p_arch = p.get("arch", "unknown")
+            p_rev = p.get("revision", "unknown")
+            result = test_results.get(p_name) if p_name else None
+
+            if result is None:
+                all_passed = False
+                failure_reasons.append(
+                    f"{p_arch} (r{p_rev}): no test results found (job cancelled or skipped)"
+                )
+            elif not result.get("passed"):
+                all_passed = False
+                e2e = result.get("e2e_result", "unknown")
+                upgrade = result.get("upgrade_result", "unknown")
+                failure_reasons.append(
+                    f"{p_arch} (r{p_rev}): tests failed (e2e: {e2e}, upgrade: {upgrade})"
+                )
+
+        if all_passed:
+            approved_proposals.extend(group)
+            arches = ", ".join(f"{p.get('arch')} (r{p.get('revision')})" for p in group)
+            LOG.info("Approved promotion to %s (%d proposal(s)): %s", channel, len(group), arches)
+        else:
+            blocked_channels[channel] = failure_reasons
+            LOG.warning(
+                "Blocked promotion to %s: %s",
+                channel,
+                "; ".join(failure_reasons),
+            )
+
+    return approved_proposals, blocked_channels
+
+
+class ChannelReleaseError(Exception):
+    """Raised when one or more channels could not be released for every architecture."""
+
+
+def _proposal_channel(p: dict) -> str:
+    return p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+
+
+def release_channel_group(
+    channel: str,
+    group: list[dict],
+    previous: dict[str, Optional[int]],
+    dry_run: bool = False,
+) -> Optional[str]:
+    """Release every proposal of one channel, rolling back on a partial failure.
+
+    `previous` maps each arch to the revision it had in `channel` before this run.
+    Returns None on success, otherwise a description of the failure and rollback.
+    """
+    # A failed call may still have been applied by the Store, so roll back every attempted arch.
+    attempted: list[dict] = []
+    for p in group:
+        attempted.append(p)
+        try:
+            release_snap(p["revision"], channel, dry_run=dry_run)
+        except subprocess.SubprocessError as e:
+            failed = f"{p.get('arch')} (r{p['revision']}): {e}"
+            break
+    else:
+        return None
+
+    outcomes = []
+    for p in attempted:
+        arch = p.get("arch", "unknown")
+        prev = previous.get(arch)
+        if prev is None:
+            outcomes.append(
+                f"{arch}: no previous revision in {channel}, may remain at r{p['revision']}"
+            )
+            continue
+        try:
+            release_snap(prev, channel, dry_run=dry_run)
+            outcomes.append(f"{arch}: rolled back to r{prev}")
+        except subprocess.SubprocessError as e:
+            outcomes.append(
+                f"{arch}: rollback to r{prev} failed ({e}), may remain at r{p['revision']}"
+            )
+    rollback = "; ".join(outcomes) if outcomes else "nothing to roll back"
+    return f"release failed for {failed}; {rollback}"
+
+
+def promote_evaluated_proposals(
+    proposals: list[dict], results_dir: Optional[str | Path], dry_run: bool = False
+) -> list[dict]:
+    """Evaluate channel groups and promote all approved proposals.
+
+    Raises ChannelReleaseError if any approved channel could not be fully released.
+    """
+    test_results = load_test_results(results_dir)
+    approved, blocked = evaluate_channel_promotions(proposals, test_results)
+
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for p in approved:
+        groups[_proposal_channel(p)].append(p)
+
+    channel_map = _create_channel_map() if groups and not dry_run else {}
+    failures: dict[str, str] = {}
+    for channel, group in groups.items():
+        previous: dict[str, Optional[int]] = {}
+        for p in group:
+            arch = p.get("arch", "unknown")
+            current = channel_map.get(arch, {}).get(channel)
+            previous[arch] = current.revision if current else None
+        if error := release_channel_group(channel, group, previous, dry_run=dry_run):
+            LOG.error("Failed to promote %s: %s", channel, error)
+            failures[channel] = error
+
+    LOG.info(
+        "Promotion summary: %d/%d proposals approved across %d channels "
+        "(%d channels blocked, %d failed to release)",
+        len(approved),
+        len(proposals),
+        len(groups),
+        len(blocked),
+        len(failures),
     )
+    if failures:
+        raise ChannelReleaseError(
+            "; ".join(f"{channel}: {error}" for channel, error in failures.items())
+        )
+    return approved
+
+
+def release_revision(args):
+    """Promote snap revisions, either single-revision or batch all-or-nothing."""
+    dry_run = getattr(args, "dry_run", False)
+    if getattr(args, "proposals", None):
+        proposals_raw = args.proposals
+        if os.path.isfile(proposals_raw):
+            with open(proposals_raw) as f:
+                proposals = json.load(f)
+        else:
+            proposals = json.loads(proposals_raw)
+        promote_evaluated_proposals(proposals, getattr(args, "results_dir", None), dry_run=dry_run)
+        return
+
+    if getattr(args, "snap_revision", None) and getattr(args, "snap_channel", None):
+        release_snap(args.snap_revision, args.snap_channel, dry_run=dry_run)
+        return
+
+    raise ValueError(
+        "Must specify either (--snap-revision and --snap-channel) or (--proposals [--results-dir])"
+    )
+
+
+def sanitize_artifact_name(name: str) -> str:
+    """Sanitize a proposal name for use as a GitHub Actions artifact name."""
+    return re.sub(r"[^a-zA-Z0-9._-]+", ".", name)
+
+
+def compute_test_outcome(
+    e2e_result: str,
+    upgrade_result: str,
+    upgrade_channels: str | list | None,
+) -> tuple[bool, bool]:
+    """Compute whether tests passed, taking into account empty upgrade test matrix."""
+    if isinstance(upgrade_channels, str):
+        try:
+            channels = json.loads(upgrade_channels) if upgrade_channels.strip() else []
+        except (json.JSONDecodeError, TypeError):
+            channels = []
+    else:
+        channels = upgrade_channels or []
+
+    has_upgrade_tests = bool(channels)
+    upgrade_ok = (upgrade_result == "success") or (
+        upgrade_result == "skipped" and not has_upgrade_tests
+    )
+    passed = (e2e_result == "success") and upgrade_ok
+    return passed, upgrade_ok
+
+
+def record_test_result(args):
+    """Record proposal test outcome to JSON file and emit step outputs."""
+    safe_name = sanitize_artifact_name(args.proposal_name)
+    passed, _ = compute_test_outcome(
+        args.e2e_result,
+        args.upgrade_result,
+        getattr(args, "upgrade_channels", "[]"),
+    )
+
+    data = {
+        "name": args.proposal_name,
+        "track": args.track,
+        "next_risk": args.next_risk,
+        "snap_channel": args.snap_channel,
+        "arch": args.arch,
+        "revision": str(args.revision),
+        "passed": passed,
+        "e2e_result": args.e2e_result,
+        "upgrade_result": args.upgrade_result,
+    }
+
+    out_dir = Path(args.output_dir or (Path(tempfile.gettempdir()) / "results"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    file_path = out_dir / f"{safe_name}.json"
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+    artifact_name = f"test-result-{safe_name}"
+    LOG.info("Recorded outcome for %s to %s (passed=%s)", args.proposal_name, file_path, passed)
+
+    core.set_output("artifact-name", artifact_name)
+    core.set_output("artifact-path", str(file_path))
+    return file_path
+
+
+def install_snapcraft(args=None):
+    """Install snapcraft classic with retries and abort recovery."""
+    dry_run = getattr(args, "dry_run", False) if args else False
+    if dry_run:
+        LOG.info("Skipping snapcraft installation (dry-run)")
+        return
+    sudo_bin = shutil.which("sudo") or "/usr/bin/sudo"
+    snap_bin = shutil.which("snap") or "/usr/bin/snap"
+    retrier = Retrying(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(10),
+        reraise=True,
+    )
+    for attempt in retrier:
+        with attempt:
+            LOG.info(
+                "Attempt %d of 3: installing snapcraft...",
+                attempt.retry_state.attempt_number,
+            )
+            try:
+                subprocess.run(  # nosec B607
+                    [sudo_bin, snap_bin, "install", "snapcraft", "--classic"],
+                    timeout=300,
+                    check=True,
+                )
+                LOG.info("Snapcraft installed successfully.")
+                return
+            except (subprocess.SubprocessError, OSError) as e:
+                LOG.warning("Snapcraft install failed (%s); aborting pending install...", e)
+                with contextlib.suppress(subprocess.SubprocessError, OSError):
+                    subprocess.run(  # nosec B607
+                        [sudo_bin, snap_bin, "abort", "--last=install"], timeout=30, check=False
+                    )
+                raise
+
+
+def download_snap(args):
+    """Download snap revision with retries."""
+    revision = str(args.revision)
+    snap_name = getattr(args, "snap_name", util.SNAP_NAME)
+    snap_bin = shutil.which("snap") or "/usr/bin/snap"
+    retrier = Retrying(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(10),
+        reraise=True,
+    )
+    for attempt in retrier:
+        with attempt:
+            LOG.info(
+                "Attempt %d of 3: downloading snap revision %s...",
+                attempt.retry_state.attempt_number,
+                revision,
+            )
+            try:
+                subprocess.run(  # nosec B607
+                    [
+                        snap_bin,
+                        "download",
+                        snap_name,
+                        f"--revision={revision}",
+                        "--basename",
+                        snap_name,
+                    ],
+                    timeout=600,
+                    check=True,
+                )
+                LOG.info("Snap revision %s downloaded successfully.", revision)
+                return
+            except (subprocess.SubprocessError, OSError) as e:
+                LOG.warning("Snap download failed (%s); cleaning up...", e)
+                for f in (Path(f"{snap_name}.snap"), Path(f"{snap_name}.assert")):
+                    if f.exists():
+                        f.unlink(missing_ok=True)
+                raise
 
 
 def run_e2e_test(args):
@@ -497,12 +917,17 @@ def execute_e2e_test(args):
 
 def execute_upgrade_test(args):
     """Execute version upgrade tests."""
+    os.environ.setdefault("TEST_VERSION_UPGRADE_MIN_RELEASE", "1.31")
+    os.environ.setdefault("TEST_DEFAULT_WAIT_RETRIES", "200")
+    os.environ.setdefault("TEST_DEFAULT_WAIT_DELAY_S", "10")
+    if getattr(args, "channels", None):
+        os.environ["TEST_VERSION_UPGRADE_CHANNELS"] = args.channels
     tox = shlex.split("tox -e integration -- -k test_version_upgrades")
     test_path = Path("tests/integration/tests/test_version_upgrades.py")
     _run_tox_tests(args, tox, test_path)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     arg_parser = argparse.ArgumentParser(Path(__file__).name, usage=USAGE, description=DESCRIPTION)
     subparsers = arg_parser.add_subparsers(required=True)
     propose_args = subparsers.add_parser("propose", help="Propose revisions for promotion")
@@ -545,7 +970,8 @@ def main():
             "that risk level instead of freezing it entirely, e.g. "
             r"'1\.36-classic:candidate' holds a track at candidate, never promoting to stable."
         ),
-        default=[],
+        # None means "not given", so resolve_propose_inputs can apply env/schedule defaults.
+        default=None,
     )
     propose_args.add_argument(
         "--ignore-arches",
@@ -576,24 +1002,89 @@ def main():
         help="Maximum number of attempts for retrying failed tests",
         default=3,
     )
+
+    test_upgrade_args.add_argument(
+        "--channels", required=False, help="Space-separated list of upgrade channels"
+    )
     test_upgrade_args.set_defaults(func=retry_upgrade_test)
 
     promote_args = subparsers.add_parser("promote", help="Promote the proposed revisions")
     promote_args.add_argument(
         "--snap-revision",
-        required=True,
-        help="The snap revision to promote",
+        required=False,
+        help="The snap revision to promote (single revision mode)",
         dest="snap_revision",
     )
     promote_args.add_argument(
         "--snap-channel",
-        required=True,
-        help="The snap channel to promote to",
+        required=False,
+        help="The snap channel to promote to (single revision mode)",
         dest="snap_channel",
+    )
+    promote_args.add_argument(
+        "--proposals",
+        required=False,
+        help="JSON string or file path containing proposals to evaluate and promote",
+    )
+    promote_args.add_argument(
+        "--results-dir",
+        required=False,
+        help="Directory containing test result JSON files",
+        dest="results_dir",
     )
     promote_args.set_defaults(func=release_revision)
 
-    args = util.setup_arguments(arg_parser)
+    record_args = subparsers.add_parser("record-result", help="Record proposal test outcome")
+    record_args.add_argument(
+        "--proposal-name", required=True, dest="proposal_name", help="Proposal name"
+    )
+    record_args.add_argument("--track", required=True, help="Snap track")
+    record_args.add_argument(
+        "--next-risk", required=True, dest="next_risk", help="Next risk level"
+    )
+    record_args.add_argument(
+        "--snap-channel", required=True, dest="snap_channel", help="Target snap channel"
+    )
+    record_args.add_argument("--arch", required=True, help="Architecture")
+    record_args.add_argument("--revision", required=True, help="Snap revision")
+    record_args.add_argument(
+        "--e2e-result", required=True, dest="e2e_result", help="E2E test result"
+    )
+    record_args.add_argument(
+        "--upgrade-result", required=True, dest="upgrade_result", help="Upgrade test result"
+    )
+    record_args.add_argument(
+        "--upgrade-channels",
+        default="[]",
+        dest="upgrade_channels",
+        help="JSON-encoded upgrade channels matrix",
+    )
+    record_args.add_argument(
+        "--output-dir",
+        default=None,
+        dest="output_dir",
+        help="Directory where result JSON is stored",
+    )
+    record_args.set_defaults(func=record_test_result)
+
+    install_snapcraft_args = subparsers.add_parser(
+        "install-snapcraft", help="Install snapcraft classic with retries"
+    )
+    install_snapcraft_args.set_defaults(func=install_snapcraft)
+
+    download_snap_args = subparsers.add_parser(
+        "download-snap", help="Download a snap revision with retries"
+    )
+    download_snap_args.add_argument("--revision", required=True, help="Snap revision to download")
+    download_snap_args.add_argument(
+        "--snap-name", default=util.SNAP_NAME, dest="snap_name", help="Name of the snap"
+    )
+    download_snap_args.set_defaults(func=download_snap)
+    return arg_parser
+
+
+def main():
+    args = util.setup_arguments(build_parser())
     args.func(args)
 
 

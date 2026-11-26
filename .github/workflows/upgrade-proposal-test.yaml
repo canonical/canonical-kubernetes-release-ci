@@ -3,6 +3,10 @@ name: Upgrade Proposal Test
 on:
   workflow_call:
     inputs:
+      arch:
+        description: 'The architecture under test'
+        required: true
+        type: string
       branch:
         description: 'The branch of the k8s-snap to use for testing the proposal'
         required: true
@@ -39,13 +43,20 @@ on:
         description: 'The next risk level (beta, candidate, stable)'
         required: true
         type: string
+      track:
+        description: 'The track under test'
+        required: true
+        type: string
       upgrade-channels:
         description: 'The upgrade paths to test'
         required: true
         type: string
     secrets:
       SNAPSTORE_AUTH_TOKEN:
-        required: true
+        required: false
+
+env:
+  DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
 jobs:
   test-proposal-e2e:
     name: E2E tests on ${{ matrix.lxd-image}}
@@ -76,24 +87,9 @@ jobs:
           bridges: "lxdbr0,dualstack-br0,ipv6-br0"
       - name: Download snap revision ${{ inputs.revision }}
         run: |
-          max_attempts=3
-          attempt=1
-          delay=10
-          while true; do
-            echo "Attempt $attempt of $max_attempts: downloading snap revision ${{ inputs.revision }}..."
-            if timeout 600 snap download k8s --revision=${{ inputs.revision }} --basename k8s; then
-              echo "Snap revision ${{ inputs.revision }} downloaded successfully."
-              break
-            fi
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "Failed to download snap revision ${{ inputs.revision }} after $max_attempts attempts." >&2
-              exit 1
-            fi
-            echo "Download failed; retrying in ${delay}s..."
-            rm -f k8s.snap k8s.assert
-            sleep "$delay"
-            attempt=$((attempt + 1))
-          done
+          tox -e runner -- \
+            scripts/promote_tracks.py download-snap \
+            --revision "${{ inputs.revision }}"
       - name: Run e2e tests on ${{matrix.lxd-image}}
         env:
           TEST_SUBSTRATE: lxd
@@ -101,8 +97,7 @@ jobs:
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
         run: |
           tox -e runner -- \
-          scripts/promote_tracks.py \
-            ${{ inputs.dry_run && ' --dry-run' || '' }} \
+            scripts/promote_tracks.py $DRY_RUN_FLAG \
             test e2e \
             --branch="${{ inputs.branch }}" \
             --next-risk="${{ inputs.next-risk }}"
@@ -150,14 +145,9 @@ jobs:
           TEST_SUBSTRATE: lxd
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
           TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channels, ' ') }}
-          # Upgrading from 1.30 is not supported.
-          TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
-          TEST_DEFAULT_WAIT_RETRIES: 200
-          TEST_DEFAULT_WAIT_DELAY_S: 10
         run: |
           tox -e runner -- \
-          scripts/promote_tracks.py \
-            ${{ inputs.dry_run && ' --dry-run' || '' }} \
+            scripts/promote_tracks.py $DRY_RUN_FLAG \
             test upgrade \
             --branch="${{ inputs.branch }}"
       - name: Upload inspection reports
@@ -170,46 +160,38 @@ jobs:
         if: ${{ failure() && github.event_name == 'pull_request' }}
         uses: canonical/action-tmate@bda82e73586a62bf621881aab872a527c8a46e2d # main
         timeout-minutes: 10
-  promote-proposal:
-    name: Promote ${{ inputs.revision }} to ${{ inputs.snap-channel }}
-    runs-on: ${{ fromJson(inputs.runner-labels) }}
-    timeout-minutes: 30
+  record-proposal-result:
+    name: Record outcome for ${{ inputs.proposal-name }}
+    runs-on: ubuntu-latest
+    if: always()
     needs: [test-proposal-upgrade, test-proposal-e2e]
     steps:
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-    - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
-      with:
-        python-version-file: '.python-version'
-    - name: Install uv
-      uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
-    - run: uv tool install tox --with tox-uv
-    - name: Install snapcraft
-      run: |
-        max_attempts=3
-        attempt=1
-        delay=10
-        while true; do
-          echo "Attempt $attempt of $max_attempts: installing snapcraft..."
-          if timeout 300 sudo snap install snapcraft --classic; then
-            echo "Snapcraft installed successfully."
-            break
-          fi
-          if [ "$attempt" -ge "$max_attempts" ]; then
-            echo "Failed to install snapcraft after $max_attempts attempts." >&2
-            exit 1
-          fi
-          echo "Snapcraft install failed; aborting any pending install and retrying in ${delay}s..."
-          timeout 30 sudo snap abort --last=install 2>/dev/null || true
-          sleep "$delay"
-          attempt=$((attempt + 1))
-        done
-    - name: Promote
-      env:
-        SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
-      run: |
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version-file: '.python-version'
+      - name: Install uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - run: uv tool install tox --with tox-uv
+      - name: Record test outcome
+        id: record
+        run: |
           tox -e runner -- \
-          scripts/promote_tracks.py \
-          ${{ inputs.dry_run && ' --dry-run' || '' }} \
-          promote \
-          --snap-revision="${{ inputs.revision }}" \
-          --snap-channel="${{ inputs.snap-channel }}"
+            scripts/promote_tracks.py record-result \
+            --proposal-name "${{ inputs.proposal-name }}" \
+            --track "${{ inputs.track }}" \
+            --next-risk "${{ inputs.next-risk }}" \
+            --snap-channel "${{ inputs.snap-channel }}" \
+            --arch "${{ inputs.arch }}" \
+            --revision "${{ inputs.revision }}" \
+            --e2e-result "${{ needs.test-proposal-e2e.result }}" \
+            --upgrade-result "${{ needs.test-proposal-upgrade.result }}" \
+            --upgrade-channels '${{ inputs.upgrade-channels }}' \
+            --output-dir /tmp/results
+      - name: Upload test result artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.record.outputs.artifact-name }}
+          path: ${{ steps.record.outputs.artifact-path }}
+          overwrite: true
