@@ -245,16 +245,53 @@ def create_proposal(args):
     args = resolve_propose_inputs(args)
     channel_map = _create_channel_map()
     proposals = []
+    stale_skips: dict[str, list[str]] = defaultdict(list)
 
     for arch, channels in channel_map.items():
-        proposals.extend(_create_arch_proposals(arch, channels, args))
+        proposals.extend(_create_arch_proposals(arch, channels, args, stale_skips=stale_skips))
+
+    if stale_skips:
+        filtered = []
+        for p in proposals:
+            chan = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+            if chan in stale_skips:
+                skipped = ", ".join(sorted(set(stale_skips[chan])))
+                LOG.warning(
+                    "Dropping %s proposal for arch %s because %s was skipped "
+                    "(stale edge or pending/failed build)",
+                    chan,
+                    p.get("arch"),
+                    skipped,
+                )
+            else:
+                filtered.append(p)
+        proposals = filtered
+
+    ignored_arches = set(getattr(args, "ignore_arches", []))
+    if ignored_arches:
+        logged_channels = set()
+        for p in proposals:
+            chan = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+            if chan not in logged_channels:
+                for ign_arch in sorted(ignored_arches):
+                    if ign_arch in channel_map and any(
+                        name.startswith(f"{p.get('track')}/") for name in channel_map[ign_arch]
+                    ):
+                        LOG.info(
+                            "Allowing promotion for %s without %s as it is in --ignore-arches",
+                            chan,
+                            ign_arch,
+                        )
+                logged_channels.add(chan)
 
     if args.gh_action:
         core.set_output("proposals", json.dumps(proposals))
     return proposals
 
 
-def _create_arch_proposals(arch, channels: dict[str, Channel], args):
+def _create_arch_proposals(
+    arch, channels: dict[str, Channel], args, stale_skips: Optional[dict[str, list[str]]] = None
+):
     proposals = []
     ignored_tracks = IGNORE_TRACKS + getattr(args, "ignore_tracks", [])
     ignored_arches = getattr(args, "ignore_arches", [])
@@ -326,6 +363,11 @@ def _create_arch_proposals(arch, channels: dict[str, Channel], args):
                         revision,
                         arch,
                     )
+                    if stale_skips is not None:
+                        stale_skips[f"{track}/{next_risk}"].append(arch)
+                        if not bool(channels.get(f"{track}/stable", EMPTY_CHANNEL).revision):
+                            stale_skips[f"{track}/candidate"].append(arch)
+                            stale_skips[f"{track}/stable"].append(arch)
                     continue
 
         now = datetime.datetime.now(datetime.timezone.utc)
