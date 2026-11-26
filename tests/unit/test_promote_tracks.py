@@ -1,10 +1,14 @@
 import argparse
 import contextlib
 import json
+import os
+import re
+import shlex
 import shutil
 import subprocess
 import unittest.mock as mock
 from pathlib import Path
+from typing import Optional
 
 import promote_tracks
 import pytest
@@ -573,3 +577,197 @@ def test_execute_e2e_test_does_not_rerun_on_branch_when_tox_fails(
         promote_tracks.execute_e2e_test(e2e_args)
 
     assert tox_invocations == 1
+
+
+def test_auto_promotion_ignore_tracks_constant():
+    assert r"1\.36-classic:candidate" in promote_tracks.AUTO_PROMOTION_IGNORE_TRACKS
+    assert r"1\.37-classic:candidate" in promote_tracks.AUTO_PROMOTION_IGNORE_TRACKS
+    assert r"^1\.\d{2}$" in promote_tracks.AUTO_PROMOTION_IGNORE_TRACKS
+
+
+def test_resolve_propose_inputs(monkeypatch: pytest.MonkeyPatch):
+    # Test scheduled event defaults
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
+    resolved = promote_tracks.resolve_propose_inputs(argparse.Namespace())
+    assert resolved.days_in_edge_risk == promote_tracks.DAYS_TO_STAY_IN_EDGE
+    assert resolved.days_in_beta_risk == promote_tracks.DAYS_TO_STAY_IN_BETA
+    assert resolved.days_in_candidate_risk == promote_tracks.DAYS_TO_STAY_IN_CANDIDATE
+    assert resolved.ignore_tracks == [
+        promote_tracks._parse_ignore_track(t) for t in promote_tracks.AUTO_PROMOTION_IGNORE_TRACKS
+    ]
+
+    # Test dispatch event with env vars
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv("DAYS_IN_EDGE_RISK", "5")
+    monkeypatch.setenv("DAYS_IN_BETA_RISK", "7")
+    monkeypatch.setenv("DAYS_IN_CANDIDATE_RISK", "9")
+    monkeypatch.setenv("IGNORE_TRACKS", "1.36-classic:candidate")
+    monkeypatch.setenv("IGNORE_ARCHES", "arm64 s390x")
+
+    resolved2 = promote_tracks.resolve_propose_inputs(argparse.Namespace())
+    assert resolved2.days_in_edge_risk == 5
+    assert resolved2.days_in_beta_risk == 7
+    assert resolved2.days_in_candidate_risk == 9
+    assert resolved2.ignore_tracks == [("1.36-classic", "candidate")]
+    assert resolved2.ignore_arches == ["arm64", "s390x"]
+
+    # An explicit CLI value wins over the environment, even when it equals the default.
+    explicit = promote_tracks.build_parser().parse_args(["propose", "--days-in-beta-risk", "1"])
+    resolved3 = promote_tracks.resolve_propose_inputs(explicit)
+    assert resolved3.days_in_beta_risk == 1
+    assert resolved3.days_in_edge_risk == 5
+
+
+@pytest.mark.parametrize(
+    "event, env_tracks, cli, expected",
+    [
+        ("schedule", None, [], promote_tracks.AUTO_PROMOTION_IGNORE_TRACKS),
+        ("workflow_dispatch", r"1\.36-classic:candidate", [], [r"1\.36-classic:candidate"]),
+        ("workflow_dispatch", None, [], []),
+        ("schedule", None, ["--ignore-tracks", "latest"], ["latest"]),
+    ],
+)
+def test_resolve_propose_inputs_from_real_parser(monkeypatch, event, env_tracks, cli, expected):
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+    monkeypatch.delenv("IGNORE_TRACKS", raising=False)
+    if env_tracks:
+        monkeypatch.setenv("IGNORE_TRACKS", env_tracks)
+    args = promote_tracks.build_parser().parse_args(["propose", "--gh-action", *cli])
+
+    resolved = promote_tracks.resolve_propose_inputs(args)
+
+    assert resolved.ignore_tracks == [promote_tracks._parse_ignore_track(t) for t in expected]
+
+
+def test_resolve_propose_inputs_preserves_backslashes(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
+    monkeypatch.setenv(
+        "IGNORE_TRACKS",
+        r"^1\.\d{2}$ (?!1\.36-classic$).* 1\.36-classic:candidate",
+    )
+    test_args = argparse.Namespace()
+    resolved = promote_tracks.resolve_propose_inputs(test_args)
+
+    assert resolved.ignore_tracks == [
+        (r"^1\.\d{2}$", None),
+        (r"(?!1\.36-classic$).*", None),
+        (r"1\.36-classic", "candidate"),
+    ]
+
+    def evaluate(track: str) -> tuple[int, Optional[str]]:
+        matches = [
+            ((-1 if ceiling is None else promote_tracks.RISK_LEVELS.index(ceiling)), pattern)
+            for pattern, ceiling in resolved.ignore_tracks
+            if re.fullmatch(pattern, track)
+        ]
+        return min(matches, default=(len(promote_tracks.RISK_LEVELS) - 1, None))
+
+    # 1.36 frozen
+    res_136, _ = evaluate("1.36")
+    assert res_136 == -1
+
+    # 1.36-classic capped at candidate (matches 1\.36-classic)
+    res_136_classic, pattern_136_classic = evaluate("1.36-classic")
+    assert res_136_classic == promote_tracks.RISK_LEVELS.index("candidate")
+    assert pattern_136_classic == r"1\.36-classic"
+
+    # 1.35-classic frozen (matches (?!1\.36-classic$).*)
+    res_135_classic, pattern_135_classic = evaluate("1.35-classic")
+    assert res_135_classic == -1
+    assert pattern_135_classic == r"(?!1\.36-classic$).*"
+
+    # 1x36-classic not matched by the cap pattern 1\.36-classic
+    cap_pattern = next(p for p, c in resolved.ignore_tracks if c == "candidate")
+    assert re.fullmatch(cap_pattern, "1x36-classic") is None
+
+
+def test_install_snapcraft():
+    # Dry run returns without executing
+    with mock.patch("promote_tracks.subprocess.run") as mock_run:
+        promote_tracks.install_snapcraft(argparse.Namespace(dry_run=True))
+        mock_run.assert_not_called()
+
+    # Success run
+    with mock.patch("promote_tracks.subprocess.run") as mock_run:
+        promote_tracks.install_snapcraft(argparse.Namespace(dry_run=False))
+        assert mock_run.call_count == 1
+        assert mock_run.call_args[0][0][-3:] == ["install", "snapcraft", "--classic"]
+        assert mock_run.call_args[1] == {"timeout": 300, "check": True}
+
+    # Failure with retry and abort
+    mock_run = mock.Mock(side_effect=[subprocess.CalledProcessError(1, ["cmd"]), None, None])
+    with (
+        mock.patch("promote_tracks.subprocess.run", mock_run),
+        mock.patch("promote_tracks.wait_fixed", return_value=lambda _: 0),
+    ):
+        promote_tracks.install_snapcraft(argparse.Namespace(dry_run=False))
+        assert mock_run.call_count >= 2
+
+
+def test_download_snap(tmp_path: Path):
+    # Success run
+    with mock.patch("promote_tracks.subprocess.run") as mock_run:
+        promote_tracks.download_snap(argparse.Namespace(revision="6058", snap_name="k8s"))
+        assert mock_run.call_count == 1
+        assert mock_run.call_args[0][0][1:] == [
+            "download",
+            "k8s",
+            "--revision=6058",
+            "--basename",
+            "k8s",
+        ]
+        assert mock_run.call_args[1] == {"timeout": 600, "check": True}
+
+    # Failure with file cleanup and retry
+    mock_run = mock.Mock(side_effect=[subprocess.CalledProcessError(1, ["cmd"]), None])
+    with (
+        mock.patch("promote_tracks.subprocess.run", mock_run),
+        mock.patch("promote_tracks.wait_fixed", return_value=lambda _: 0),
+    ):
+        promote_tracks.download_snap(argparse.Namespace(revision="6058", snap_name="k8s"))
+        assert mock_run.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "preset, channels, expected",
+    [
+        (
+            {},
+            None,
+            {
+                "TEST_VERSION_UPGRADE_MIN_RELEASE": "1.31",
+                "TEST_DEFAULT_WAIT_RETRIES": "200",
+                "TEST_DEFAULT_WAIT_DELAY_S": "10",
+            },
+        ),
+        (
+            {"TEST_DEFAULT_WAIT_RETRIES": "5", "TEST_VERSION_UPGRADE_CHANNELS": "old"},
+            "1.35-classic/stable 1.36-classic/edge@6058",
+            {
+                "TEST_DEFAULT_WAIT_RETRIES": "5",
+                "TEST_VERSION_UPGRADE_CHANNELS": "1.35-classic/stable 1.36-classic/edge@6058",
+            },
+        ),
+    ],
+)
+def test_execute_upgrade_test_environment(monkeypatch, preset, channels, expected):
+    for key in (
+        "TEST_VERSION_UPGRADE_MIN_RELEASE",
+        "TEST_DEFAULT_WAIT_RETRIES",
+        "TEST_DEFAULT_WAIT_DELAY_S",
+        "TEST_VERSION_UPGRADE_CHANNELS",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in preset.items():
+        monkeypatch.setenv(key, value)
+    seen = {}
+
+    def run_tox(args, tox, test_path, ref=None):
+        seen.update({k: os.environ.get(k) for k in expected})
+        assert tox == shlex.split("tox -e integration -- -k test_version_upgrades")
+
+    with mock.patch("promote_tracks._run_tox_tests", side_effect=run_tox) as mock_run:
+        promote_tracks.execute_upgrade_test(argparse.Namespace(channels=channels))
+
+    mock_run.assert_called_once()
+    assert seen == expected

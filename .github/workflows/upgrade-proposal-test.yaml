@@ -46,6 +46,9 @@ on:
     secrets:
       SNAPSTORE_AUTH_TOKEN:
         required: true
+
+env:
+  DRY_RUN_FLAG: ${{ inputs.dry_run && '--dry-run' || '' }}
 jobs:
   test-proposal-e2e:
     name: E2E tests on ${{ matrix.lxd-image}}
@@ -76,24 +79,9 @@ jobs:
           bridges: "lxdbr0,dualstack-br0,ipv6-br0"
       - name: Download snap revision ${{ inputs.revision }}
         run: |
-          max_attempts=3
-          attempt=1
-          delay=10
-          while true; do
-            echo "Attempt $attempt of $max_attempts: downloading snap revision ${{ inputs.revision }}..."
-            if timeout 600 snap download k8s --revision=${{ inputs.revision }} --basename k8s; then
-              echo "Snap revision ${{ inputs.revision }} downloaded successfully."
-              break
-            fi
-            if [ "$attempt" -ge "$max_attempts" ]; then
-              echo "Failed to download snap revision ${{ inputs.revision }} after $max_attempts attempts." >&2
-              exit 1
-            fi
-            echo "Download failed; retrying in ${delay}s..."
-            rm -f k8s.snap k8s.assert
-            sleep "$delay"
-            attempt=$((attempt + 1))
-          done
+          tox -e runner -- \
+            scripts/promote_tracks.py download-snap \
+            --revision "${{ inputs.revision }}"
       - name: Run e2e tests on ${{matrix.lxd-image}}
         env:
           TEST_SUBSTRATE: lxd
@@ -101,8 +89,7 @@ jobs:
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
         run: |
           tox -e runner -- \
-          scripts/promote_tracks.py \
-            ${{ inputs.dry_run && ' --dry-run' || '' }} \
+            scripts/promote_tracks.py $DRY_RUN_FLAG \
             test e2e \
             --branch="${{ inputs.branch }}" \
             --next-risk="${{ inputs.next-risk }}"
@@ -150,14 +137,9 @@ jobs:
           TEST_SUBSTRATE: lxd
           TEST_LXD_IMAGE: ${{ matrix.lxd-image }}
           TEST_VERSION_UPGRADE_CHANNELS: ${{ join(matrix.upgrade-channels, ' ') }}
-          # Upgrading from 1.30 is not supported.
-          TEST_VERSION_UPGRADE_MIN_RELEASE: "1.31"
-          TEST_DEFAULT_WAIT_RETRIES: 200
-          TEST_DEFAULT_WAIT_DELAY_S: 10
         run: |
           tox -e runner -- \
-          scripts/promote_tracks.py \
-            ${{ inputs.dry_run && ' --dry-run' || '' }} \
+            scripts/promote_tracks.py $DRY_RUN_FLAG \
             test upgrade \
             --branch="${{ inputs.branch }}"
       - name: Upload inspection reports
@@ -184,32 +166,13 @@ jobs:
       uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
     - run: uv tool install tox --with tox-uv
     - name: Install snapcraft
-      run: |
-        max_attempts=3
-        attempt=1
-        delay=10
-        while true; do
-          echo "Attempt $attempt of $max_attempts: installing snapcraft..."
-          if timeout 300 sudo snap install snapcraft --classic; then
-            echo "Snapcraft installed successfully."
-            break
-          fi
-          if [ "$attempt" -ge "$max_attempts" ]; then
-            echo "Failed to install snapcraft after $max_attempts attempts." >&2
-            exit 1
-          fi
-          echo "Snapcraft install failed; aborting any pending install and retrying in ${delay}s..."
-          timeout 30 sudo snap abort --last=install 2>/dev/null || true
-          sleep "$delay"
-          attempt=$((attempt + 1))
-        done
+      run: tox -e runner -- scripts/promote_tracks.py $DRY_RUN_FLAG install-snapcraft
     - name: Promote
       env:
         SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_AUTH_TOKEN }}
       run: |
-          tox -e runner -- \
-          scripts/promote_tracks.py \
-          ${{ inputs.dry_run && ' --dry-run' || '' }} \
+        tox -e runner -- \
+          scripts/promote_tracks.py $DRY_RUN_FLAG \
           promote \
           --snap-revision="${{ inputs.revision }}" \
           --snap-channel="${{ inputs.snap-channel }}"
