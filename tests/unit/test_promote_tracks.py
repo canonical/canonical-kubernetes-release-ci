@@ -588,12 +588,10 @@ def test_auto_promotion_ignore_tracks_constant():
 def test_resolve_propose_inputs(monkeypatch: pytest.MonkeyPatch):
     # Test scheduled event defaults
     monkeypatch.setenv("GITHUB_EVENT_NAME", "schedule")
-    test_args = argparse.Namespace(
-        days_in_edge_risk=promote_tracks.DAYS_TO_STAY_IN_EDGE,
-        days_in_beta_risk=promote_tracks.DAYS_TO_STAY_IN_BETA,
-        days_in_candidate_risk=promote_tracks.DAYS_TO_STAY_IN_CANDIDATE,
-    )
-    resolved = promote_tracks.resolve_propose_inputs(test_args)
+    resolved = promote_tracks.resolve_propose_inputs(argparse.Namespace())
+    assert resolved.days_in_edge_risk == promote_tracks.DAYS_TO_STAY_IN_EDGE
+    assert resolved.days_in_beta_risk == promote_tracks.DAYS_TO_STAY_IN_BETA
+    assert resolved.days_in_candidate_risk == promote_tracks.DAYS_TO_STAY_IN_CANDIDATE
     assert resolved.ignore_tracks == [
         promote_tracks._parse_ignore_track(t) for t in promote_tracks.AUTO_PROMOTION_IGNORE_TRACKS
     ]
@@ -606,17 +604,18 @@ def test_resolve_propose_inputs(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("IGNORE_TRACKS", "1.36-classic:candidate")
     monkeypatch.setenv("IGNORE_ARCHES", "arm64 s390x")
 
-    test_args2 = argparse.Namespace(
-        days_in_edge_risk=promote_tracks.DAYS_TO_STAY_IN_EDGE,
-        days_in_beta_risk=promote_tracks.DAYS_TO_STAY_IN_BETA,
-        days_in_candidate_risk=promote_tracks.DAYS_TO_STAY_IN_CANDIDATE,
-    )
-    resolved2 = promote_tracks.resolve_propose_inputs(test_args2)
+    resolved2 = promote_tracks.resolve_propose_inputs(argparse.Namespace())
     assert resolved2.days_in_edge_risk == 5
     assert resolved2.days_in_beta_risk == 7
     assert resolved2.days_in_candidate_risk == 9
     assert resolved2.ignore_tracks == [("1.36-classic", "candidate")]
     assert resolved2.ignore_arches == ["arm64", "s390x"]
+
+    # An explicit CLI value wins over the environment, even when it equals the default.
+    explicit = promote_tracks.build_parser().parse_args(["propose", "--days-in-beta-risk", "1"])
+    resolved3 = promote_tracks.resolve_propose_inputs(explicit)
+    assert resolved3.days_in_beta_risk == 1
+    assert resolved3.days_in_edge_risk == 5
 
 
 @pytest.mark.parametrize(

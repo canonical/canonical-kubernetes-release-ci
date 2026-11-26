@@ -216,23 +216,15 @@ def _create_channel_map():
 
 def resolve_propose_inputs(args) -> argparse.Namespace:
     """Resolve propose parameters from CLI arguments and environment variables."""
-    days_edge = getattr(args, "days_in_edge_risk", None)
-    if days_edge is None or days_edge == DAYS_TO_STAY_IN_EDGE:
-        if env_val := os.getenv("DAYS_IN_EDGE_RISK"):
-            with contextlib.suppress(ValueError):
-                args.days_in_edge_risk = int(env_val)
-
-    days_beta = getattr(args, "days_in_beta_risk", None)
-    if days_beta is None or days_beta == DAYS_TO_STAY_IN_BETA:
-        if env_val := os.getenv("DAYS_IN_BETA_RISK"):
-            with contextlib.suppress(ValueError):
-                args.days_in_beta_risk = int(env_val)
-
-    days_cand = getattr(args, "days_in_candidate_risk", None)
-    if days_cand is None or days_cand == DAYS_TO_STAY_IN_CANDIDATE:
-        if env_val := os.getenv("DAYS_IN_CANDIDATE_RISK"):
-            with contextlib.suppress(ValueError):
-                args.days_in_candidate_risk = int(env_val)
+    # Precedence: explicit CLI value, then workflow input from the environment, then default.
+    for attr, env_name, default in (
+        ("days_in_edge_risk", "DAYS_IN_EDGE_RISK", DAYS_TO_STAY_IN_EDGE),
+        ("days_in_beta_risk", "DAYS_IN_BETA_RISK", DAYS_TO_STAY_IN_BETA),
+        ("days_in_candidate_risk", "DAYS_IN_CANDIDATE_RISK", DAYS_TO_STAY_IN_CANDIDATE),
+    ):
+        if getattr(args, attr, None) is None:
+            env_val = os.getenv(env_name)
+            setattr(args, attr, int(env_val) if env_val else default)
 
     if not getattr(args, "ignore_arches", None):
         if env_arches := os.getenv("IGNORE_ARCHES"):
@@ -646,20 +638,23 @@ def build_parser() -> argparse.ArgumentParser:
     propose_args.add_argument(
         "--days-in-edge-risk",
         type=int,
-        help="The number of days a revision stays in edge risk",
-        default=DAYS_TO_STAY_IN_EDGE,
+        help=f"The number of days a revision stays in edge risk (default {DAYS_TO_STAY_IN_EDGE})",
+        default=None,
     )
     propose_args.add_argument(
         "--days-in-beta-risk",
         type=int,
-        help="The number of days a revision stays in beta risk",
-        default=DAYS_TO_STAY_IN_BETA,
+        help=f"The number of days a revision stays in beta risk (default {DAYS_TO_STAY_IN_BETA})",
+        default=None,
     )
     propose_args.add_argument(
         "--days-in-candidate-risk",
         type=int,
-        help="The number of days a revision stays in candidate risk",
-        default=DAYS_TO_STAY_IN_CANDIDATE,
+        help=(
+            "The number of days a revision stays in candidate risk "
+            f"(default {DAYS_TO_STAY_IN_CANDIDATE})"
+        ),
+        default=None,
     )
     propose_args.add_argument(
         "--ignore-tracks",
