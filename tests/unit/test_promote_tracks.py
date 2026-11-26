@@ -700,6 +700,11 @@ def test_compute_test_outcome():
         False,
         False,
     )
+    # A malformed upgrade matrix with a skipped upgrade job fails closed
+    assert promote_tracks.compute_test_outcome("success", "skipped", "[not-json") == (
+        False,
+        False,
+    )
 
 
 def test_record_test_result(tmp_path: Path):
@@ -930,6 +935,8 @@ def test_create_proposal_ignore_arches_allows_single_arch():
 
     assert len(proposals) > 0
     assert all(p["arch"] == "amd64" for p in proposals)
+
+
 def test_load_test_results(tmp_path: Path):
     assert promote_tracks.load_test_results(None) == {}
     assert promote_tracks.load_test_results(tmp_path / "nonexistent") == {}
