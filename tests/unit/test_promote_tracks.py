@@ -617,6 +617,27 @@ def test_resolve_propose_inputs(monkeypatch: pytest.MonkeyPatch):
     assert resolved2.ignore_arches == ["arm64", "s390x"]
 
 
+@pytest.mark.parametrize(
+    "event, env_tracks, cli, expected",
+    [
+        ("schedule", None, [], promote_tracks.AUTO_PROMOTION_IGNORE_TRACKS),
+        ("workflow_dispatch", r"1\.36-classic:candidate", [], [r"1\.36-classic:candidate"]),
+        ("workflow_dispatch", None, [], []),
+        ("schedule", None, ["--ignore-tracks", "latest"], ["latest"]),
+    ],
+)
+def test_resolve_propose_inputs_from_real_parser(monkeypatch, event, env_tracks, cli, expected):
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event)
+    monkeypatch.delenv("IGNORE_TRACKS", raising=False)
+    if env_tracks:
+        monkeypatch.setenv("IGNORE_TRACKS", env_tracks)
+    args = promote_tracks.build_parser().parse_args(["propose", "--gh-action", *cli])
+
+    resolved = promote_tracks.resolve_propose_inputs(args)
+
+    assert resolved.ignore_tracks == [promote_tracks._parse_ignore_track(t) for t in expected]
+
+
 def test_resolve_propose_inputs_preserves_backslashes(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GITHUB_EVENT_NAME", "workflow_dispatch")
     monkeypatch.setenv(

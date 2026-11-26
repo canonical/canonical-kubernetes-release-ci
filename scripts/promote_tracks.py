@@ -918,7 +918,7 @@ def execute_upgrade_test(args):
     _run_tox_tests(args, tox, test_path)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     arg_parser = argparse.ArgumentParser(Path(__file__).name, usage=USAGE, description=DESCRIPTION)
     subparsers = arg_parser.add_subparsers(required=True)
     propose_args = subparsers.add_parser("propose", help="Propose revisions for promotion")
@@ -961,7 +961,8 @@ def main():
             "that risk level instead of freezing it entirely, e.g. "
             r"'1\.36-classic:candidate' holds a track at candidate, never promoting to stable."
         ),
-        default=[],
+        # None means "not given", so resolve_propose_inputs can apply env/schedule defaults.
+        default=None,
     )
     propose_args.add_argument(
         "--ignore-arches",
@@ -1070,7 +1071,11 @@ def main():
         "--snap-name", default=util.SNAP_NAME, dest="snap_name", help="Name of the snap"
     )
     download_snap_args.set_defaults(func=download_snap)
-    args = util.setup_arguments(arg_parser)
+    return arg_parser
+
+
+def main():
+    args = util.setup_arguments(build_parser())
     args.func(args)
 
 
