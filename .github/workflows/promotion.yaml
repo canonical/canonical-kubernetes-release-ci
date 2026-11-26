@@ -107,6 +107,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: [promotion-proposal, test-proposal]
     if: always() && needs.promotion-proposal.result == 'success' && needs.promotion-proposal.outputs.proposals && needs.promotion-proposal.outputs.proposals != '[]'
+    # Serialize releases across runs so a rollback never restores a snapshot that another
+    # run has since changed.
+    concurrency:
+      group: snap-promotion-release
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Setup Python

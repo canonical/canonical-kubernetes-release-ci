@@ -1107,6 +1107,26 @@ def test_promote_rolls_back_partially_released_channel(tmp_path: Path):
     ]
 
 
+def test_release_channel_group_releases_unrecoverable_arch_last():
+    group = [
+        {"snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
+        {"snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
+    ]
+    # arm64 fails with an OSError (e.g. snapcraft missing) before amd64 is attempted.
+    side_effect = [FileNotFoundError("snapcraft"), None]
+    with mock.patch("promote_tracks.release_snap", side_effect=side_effect) as mock_release:
+        error = promote_tracks.release_channel_group(
+            "1.36-classic/beta", group, {"amd64": None, "arm64": 5935}
+        )
+    assert error is not None
+    assert "arm64: rolled back to r5935" in error
+    assert "amd64" not in error.split(";", 1)[1]
+    assert mock_release.call_args_list == [
+        mock.call(6059, "1.36-classic/beta", dry_run=False),
+        mock.call(5935, "1.36-classic/beta", dry_run=False),
+    ]
+
+
 def test_release_channel_group_reports_arch_without_previous_revision():
     group = [
         {"snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
@@ -1120,7 +1140,11 @@ def test_release_channel_group_reports_arch_without_previous_revision():
     assert error is not None
     assert "amd64: no previous revision in 1.36-classic/beta, may remain at r6058" in error
     assert "arm64: rolled back to r5935" in error
-    assert mock_release.call_count == 3
+    assert mock_release.call_args_list == [
+        mock.call(6059, "1.36-classic/beta", dry_run=False),
+        mock.call(6058, "1.36-classic/beta", dry_run=False),
+        mock.call(5935, "1.36-classic/beta", dry_run=False),
+    ]
 
 
 def test_release_channel_group_rolls_back_on_store_timeout():
