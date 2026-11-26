@@ -18,7 +18,7 @@ from util import promotion_matrix
 MOCK_BRANCH = "branchy-mcbranchface"
 MOCK_TRACK = "1.31-tracky"
 MOCK_SERIES = ["capricorn", "aquarius", "pisces"]
-MOCK_RUNNERS = {"amd64": "runny-mcrunnerface"}
+MOCK_RUNNERS = {"amd64": "runny-mcrunnerface", "arm64": "runny-armrunnerface"}
 MOCK_PROFILES = [
     promotion_matrix.Profile(
         runs_on=MOCK_RUNNERS,
@@ -771,3 +771,118 @@ def test_execute_upgrade_test_environment(monkeypatch, preset, channels, expecte
 
     mock_run.assert_called_once()
     assert seen == expected
+
+
+@PATCH_PROFILES
+def test_create_proposal_drops_channel_when_an_arch_is_stale():
+    snap_info = {
+        "channel-map": [
+            _create_channel("1.36-classic", "edge", 6058, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "edge", 6059, arch="arm64", date="2000-01-01"),
+            _create_channel("1.36-classic", "beta", 6050, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "beta", 6050, arch="arm64", date="2000-01-01"),
+            _create_channel("1.36-classic", "stable", 6040, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "stable", 6040, arch="arm64", date="2000-01-01"),
+        ]
+    }
+
+    def mock_edge_is_stale(recipe, arch, edge_revision):
+        return arch == "amd64"
+
+    with (
+        freeze_time("2000-01-05"),
+        mock.patch("promote_tracks.snapstore.info", return_value=snap_info),
+        mock.patch("util.lp.recipe_for_track", return_value=mock.Mock()),
+        mock.patch("util.lp.retry_failed_builds", return_value=[]),
+        mock.patch("util.lp.edge_is_stale", side_effect=mock_edge_is_stale),
+        mock.patch("util.k8s.get_latest_stable", return_value="v1.36.0"),
+    ):
+        proposals = promote_tracks.create_proposal(args)
+
+    beta_proposals = [p for p in proposals if p["snap-channel"] == "1.36-classic/beta"]
+    assert beta_proposals == []
+
+
+@PATCH_PROFILES
+def test_create_proposal_keeps_channel_when_no_arch_is_stale():
+    snap_info = {
+        "channel-map": [
+            _create_channel("1.36-classic", "edge", 6058, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "edge", 6059, arch="arm64", date="2000-01-01"),
+            _create_channel("1.36-classic", "beta", 6050, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "beta", 6050, arch="arm64", date="2000-01-01"),
+            _create_channel("1.36-classic", "stable", 6040, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "stable", 6040, arch="arm64", date="2000-01-01"),
+        ]
+    }
+
+    with (
+        freeze_time("2000-01-05"),
+        mock.patch("promote_tracks.snapstore.info", return_value=snap_info),
+        mock.patch("util.lp.recipe_for_track", return_value=mock.Mock()),
+        mock.patch("util.lp.retry_failed_builds", return_value=[]),
+        mock.patch("util.lp.edge_is_stale", return_value=False),
+        mock.patch("util.k8s.get_latest_stable", return_value="v1.36.0"),
+    ):
+        proposals = promote_tracks.create_proposal(args)
+
+    beta_proposals = [p for p in proposals if p["snap-channel"] == "1.36-classic/beta"]
+    assert len(beta_proposals) == 2
+    assert {p["arch"] for p in beta_proposals} == {"amd64", "arm64"}
+
+
+@PATCH_PROFILES
+def test_create_proposal_legitimately_not_needed_arch_does_not_block():
+    # amd64 already at beta revision 6058, arm64 at 6050 needing upgrade to 6058
+    snap_info = {
+        "channel-map": [
+            _create_channel("1.36-classic", "edge", 6058, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "edge", 6058, arch="arm64", date="2000-01-01"),
+            _create_channel("1.36-classic", "beta", 6058, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "beta", 6050, arch="arm64", date="2000-01-01"),
+            _create_channel("1.36-classic", "stable", 6040, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "stable", 6040, arch="arm64", date="2000-01-01"),
+        ]
+    }
+
+    with (
+        freeze_time("2000-01-05"),
+        mock.patch("promote_tracks.snapstore.info", return_value=snap_info),
+        mock.patch("util.lp.recipe_for_track", return_value=mock.Mock()),
+        mock.patch("util.lp.retry_failed_builds", return_value=[]),
+        mock.patch("util.lp.edge_is_stale", return_value=False),
+        mock.patch("util.k8s.get_latest_stable", return_value="v1.36.0"),
+    ):
+        proposals = promote_tracks.create_proposal(args)
+
+    beta_proposals = [p for p in proposals if p["snap-channel"] == "1.36-classic/beta"]
+    assert len(beta_proposals) == 1
+    assert beta_proposals[0]["arch"] == "arm64"
+
+
+@PATCH_PROFILES
+def test_create_proposal_ignore_arches_allows_single_arch():
+    snap_info = {
+        "channel-map": [
+            _create_channel("1.36-classic", "edge", 6058, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "edge", 6059, arch="arm64", date="2000-01-01"),
+            _create_channel("1.36-classic", "beta", 6050, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "beta", 6050, arch="arm64", date="2000-01-01"),
+            _create_channel("1.36-classic", "stable", 6040, arch="amd64", date="2000-01-01"),
+            _create_channel("1.36-classic", "stable", 6040, arch="arm64", date="2000-01-01"),
+        ]
+    }
+    args.ignore_arches = ["arm64"]
+
+    with (
+        freeze_time("2000-01-05"),
+        mock.patch("promote_tracks.snapstore.info", return_value=snap_info),
+        mock.patch("util.lp.recipe_for_track", return_value=mock.Mock()),
+        mock.patch("util.lp.retry_failed_builds", return_value=[]),
+        mock.patch("util.lp.edge_is_stale", return_value=False),
+        mock.patch("util.k8s.get_latest_stable", return_value="v1.36.0"),
+    ):
+        proposals = promote_tracks.create_proposal(args)
+
+    assert len(proposals) > 0
+    assert all(p["arch"] == "amd64" for p in proposals)
