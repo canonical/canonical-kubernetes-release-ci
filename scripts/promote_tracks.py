@@ -48,6 +48,15 @@ IGNORE_TRACKS: list[tuple[str, Optional[str]]] = [
     ("latest", None),
 ]
 
+# Default ignore tracks applied for automatic scheduled promotions.
+AUTO_PROMOTION_IGNORE_TRACKS = [
+    r"^1\.\d{2}$",
+    r"^1\.\d{2}-moonray$",
+    r"^1\.30(-.*)?$",
+    r"^1\.31(-.*)?$",
+    r"1\.36-classic:candidate",
+    r"1\.37-classic:candidate",
+]
 # The snap risk levels, used to find the next risk level for a revision.
 RISK_LEVELS = ["edge", "beta", "candidate", "stable"]
 NEXT_RISK = RISK_LEVELS[1:] + [None]
@@ -205,7 +214,43 @@ def _create_channel_map():
     return channel_map
 
 
+def resolve_propose_inputs(args) -> argparse.Namespace:
+    """Resolve propose parameters from CLI arguments and environment variables."""
+    days_edge = getattr(args, "days_in_edge_risk", None)
+    if days_edge is None or days_edge == DAYS_TO_STAY_IN_EDGE:
+        if env_val := os.getenv("DAYS_IN_EDGE_RISK"):
+            with contextlib.suppress(ValueError):
+                args.days_in_edge_risk = int(env_val)
+
+    days_beta = getattr(args, "days_in_beta_risk", None)
+    if days_beta is None or days_beta == DAYS_TO_STAY_IN_BETA:
+        if env_val := os.getenv("DAYS_IN_BETA_RISK"):
+            with contextlib.suppress(ValueError):
+                args.days_in_beta_risk = int(env_val)
+
+    days_cand = getattr(args, "days_in_candidate_risk", None)
+    if days_cand is None or days_cand == DAYS_TO_STAY_IN_CANDIDATE:
+        if env_val := os.getenv("DAYS_IN_CANDIDATE_RISK"):
+            with contextlib.suppress(ValueError):
+                args.days_in_candidate_risk = int(env_val)
+
+    if not getattr(args, "ignore_arches", None):
+        if env_arches := os.getenv("IGNORE_ARCHES"):
+            args.ignore_arches = env_arches.split()
+
+    if getattr(args, "ignore_tracks", None) is None:
+        if env_tracks := os.getenv("IGNORE_TRACKS"):
+            args.ignore_tracks = [_parse_ignore_track(t) for t in env_tracks.split() if t]
+        elif os.getenv("GITHUB_EVENT_NAME") == "schedule":
+            args.ignore_tracks = [_parse_ignore_track(t) for t in AUTO_PROMOTION_IGNORE_TRACKS]
+        else:
+            args.ignore_tracks = []
+
+    return args
+
+
 def create_proposal(args):
+    args = resolve_propose_inputs(args)
     channel_map = _create_channel_map()
     proposals = []
 
@@ -394,6 +439,82 @@ def release_revision(args):
     )
 
 
+def install_snapcraft(args=None):
+    """Install snapcraft classic with retries and abort recovery."""
+    dry_run = getattr(args, "dry_run", False) if args else False
+    if dry_run:
+        LOG.info("Skipping snapcraft installation (dry-run)")
+        return
+    sudo_bin = shutil.which("sudo") or "/usr/bin/sudo"
+    snap_bin = shutil.which("snap") or "/usr/bin/snap"
+    retrier = Retrying(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(10),
+        reraise=True,
+    )
+    for attempt in retrier:
+        with attempt:
+            LOG.info(
+                "Attempt %d of 3: installing snapcraft...",
+                attempt.retry_state.attempt_number,
+            )
+            try:
+                subprocess.run(  # nosec B607
+                    [sudo_bin, snap_bin, "install", "snapcraft", "--classic"],
+                    timeout=300,
+                    check=True,
+                )
+                LOG.info("Snapcraft installed successfully.")
+                return
+            except (subprocess.SubprocessError, OSError) as e:
+                LOG.warning("Snapcraft install failed (%s); aborting pending install...", e)
+                with contextlib.suppress(subprocess.SubprocessError, OSError):
+                    subprocess.run(  # nosec B607
+                        [sudo_bin, snap_bin, "abort", "--last=install"], timeout=30, check=False
+                    )
+                raise
+
+
+def download_snap(args):
+    """Download snap revision with retries."""
+    revision = str(args.revision)
+    snap_name = getattr(args, "snap_name", util.SNAP_NAME)
+    snap_bin = shutil.which("snap") or "/usr/bin/snap"
+    retrier = Retrying(
+        stop=stop_after_attempt(3),
+        wait=wait_fixed(10),
+        reraise=True,
+    )
+    for attempt in retrier:
+        with attempt:
+            LOG.info(
+                "Attempt %d of 3: downloading snap revision %s...",
+                attempt.retry_state.attempt_number,
+                revision,
+            )
+            try:
+                subprocess.run(  # nosec B607
+                    [
+                        snap_bin,
+                        "download",
+                        snap_name,
+                        f"--revision={revision}",
+                        "--basename",
+                        snap_name,
+                    ],
+                    timeout=600,
+                    check=True,
+                )
+                LOG.info("Snap revision %s downloaded successfully.", revision)
+                return
+            except (subprocess.SubprocessError, OSError) as e:
+                LOG.warning("Snap download failed (%s); cleaning up...", e)
+                for f in (Path(f"{snap_name}.snap"), Path(f"{snap_name}.assert")):
+                    if f.exists():
+                        f.unlink(missing_ok=True)
+                raise
+
+
 def run_e2e_test(args):
     """Run e2e tests (no retry)."""
     execute_e2e_test(args)
@@ -497,12 +618,17 @@ def execute_e2e_test(args):
 
 def execute_upgrade_test(args):
     """Execute version upgrade tests."""
+    os.environ.setdefault("TEST_VERSION_UPGRADE_MIN_RELEASE", "1.31")
+    os.environ.setdefault("TEST_DEFAULT_WAIT_RETRIES", "200")
+    os.environ.setdefault("TEST_DEFAULT_WAIT_DELAY_S", "10")
+    if getattr(args, "channels", None):
+        os.environ["TEST_VERSION_UPGRADE_CHANNELS"] = args.channels
     tox = shlex.split("tox -e integration -- -k test_version_upgrades")
     test_path = Path("tests/integration/tests/test_version_upgrades.py")
     _run_tox_tests(args, tox, test_path)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     arg_parser = argparse.ArgumentParser(Path(__file__).name, usage=USAGE, description=DESCRIPTION)
     subparsers = arg_parser.add_subparsers(required=True)
     propose_args = subparsers.add_parser("propose", help="Propose revisions for promotion")
@@ -545,7 +671,8 @@ def main():
             "that risk level instead of freezing it entirely, e.g. "
             r"'1\.36-classic:candidate' holds a track at candidate, never promoting to stable."
         ),
-        default=[],
+        # None means "not given", so resolve_propose_inputs can apply env/schedule defaults.
+        default=None,
     )
     propose_args.add_argument(
         "--ignore-arches",
@@ -576,6 +703,10 @@ def main():
         help="Maximum number of attempts for retrying failed tests",
         default=3,
     )
+
+    test_upgrade_args.add_argument(
+        "--channels", required=False, help="Space-separated list of upgrade channels"
+    )
     test_upgrade_args.set_defaults(func=retry_upgrade_test)
 
     promote_args = subparsers.add_parser("promote", help="Promote the proposed revisions")
@@ -593,7 +724,24 @@ def main():
     )
     promote_args.set_defaults(func=release_revision)
 
-    args = util.setup_arguments(arg_parser)
+    install_snapcraft_args = subparsers.add_parser(
+        "install-snapcraft", help="Install snapcraft classic with retries"
+    )
+    install_snapcraft_args.set_defaults(func=install_snapcraft)
+
+    download_snap_args = subparsers.add_parser(
+        "download-snap", help="Download a snap revision with retries"
+    )
+    download_snap_args.add_argument("--revision", required=True, help="Snap revision to download")
+    download_snap_args.add_argument(
+        "--snap-name", default=util.SNAP_NAME, dest="snap_name", help="Name of the snap"
+    )
+    download_snap_args.set_defaults(func=download_snap)
+    return arg_parser
+
+
+def main():
+    args = util.setup_arguments(build_parser())
     args.func(args)
 
 
