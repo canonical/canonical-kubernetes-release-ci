@@ -877,6 +877,7 @@ def test_release_snap_and_dry_run():
         mock_run.assert_called_once_with(
             ["/snap/bin/snapcraft", "release", "k8s", "6058", "1.36-classic/beta"],
             check=True,
+            timeout=promote_tracks.SNAPCRAFT_RELEASE_TIMEOUT_S,
         )
 
     mock_run = mock.Mock(side_effect=[subprocess.CalledProcessError(1, ["cmd"]), None])
@@ -952,6 +953,21 @@ def test_release_channel_group_reports_arch_without_previous_revision():
     assert error is not None
     assert "amd64: no previous revision in 1.36-classic/beta, left at r6058" in error
     assert mock_release.call_count == 2
+
+
+def test_release_channel_group_rolls_back_on_store_timeout():
+    group = [
+        {"snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
+        {"snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
+    ]
+    side_effect = [None, subprocess.TimeoutExpired(["snapcraft"], 300), None]
+    with mock.patch("promote_tracks.release_snap", side_effect=side_effect) as mock_release:
+        error = promote_tracks.release_channel_group(
+            "1.36-classic/beta", group, {"amd64": 5934, "arm64": 5935}
+        )
+    assert error is not None
+    assert "amd64: rolled back to r5934" in error
+    assert mock_release.call_args_list[-1] == mock.call(5934, "1.36-classic/beta", dry_run=False)
 
 
 def test_release_revision_cli_modes(tmp_path: Path):

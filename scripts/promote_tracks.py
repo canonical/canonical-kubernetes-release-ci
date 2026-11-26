@@ -469,6 +469,10 @@ def _create_arch_proposals(
     return proposals
 
 
+# Upper bound for a single `snapcraft release` call so a stuck Store request can't block rollback.
+SNAPCRAFT_RELEASE_TIMEOUT_S = 300
+
+
 def release_snap(revision: int | str, channel: str, dry_run: bool = False):
     """Release a single snap revision to a channel with retries."""
     LOG.info("Promote r%s to %s%s", revision, channel, " (dry-run)" if dry_run else "")
@@ -483,6 +487,7 @@ def release_snap(revision: int | str, channel: str, dry_run: bool = False):
             subprocess.run(
                 ["/snap/bin/snapcraft", "release", util.SNAP_NAME, str(revision), channel],
                 check=True,
+                timeout=SNAPCRAFT_RELEASE_TIMEOUT_S,
             )
 
 
@@ -579,7 +584,7 @@ def release_channel_group(
     for p in group:
         try:
             release_snap(p["revision"], channel, dry_run=dry_run)
-        except subprocess.CalledProcessError as e:
+        except subprocess.SubprocessError as e:
             failed = f"{p.get('arch')} (r{p['revision']}): {e}"
             break
         released.append(p)
@@ -597,7 +602,7 @@ def release_channel_group(
         try:
             release_snap(prev, channel, dry_run=dry_run)
             outcomes.append(f"{arch}: rolled back to r{prev}")
-        except subprocess.CalledProcessError as e:
+        except subprocess.SubprocessError as e:
             outcomes.append(f"{arch}: rollback to r{prev} failed ({e}), left at r{p['revision']}")
     rollback = "; ".join(outcomes) if outcomes else "nothing to roll back"
     return f"release failed for {failed}; {rollback}"
