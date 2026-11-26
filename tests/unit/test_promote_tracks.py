@@ -873,10 +873,64 @@ def test_promote_evaluated_proposals(tmp_path: Path):
     ]
     (tmp_path / "p1.json").write_text(json.dumps({"name": "p1", "passed": True}))
 
-    with mock.patch("promote_tracks.release_snap") as mock_release:
+    with (
+        mock.patch("promote_tracks.release_snap") as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value={}),
+    ):
         approved = promote_tracks.promote_evaluated_proposals(proposals, tmp_path, dry_run=False)
         assert approved == proposals
         mock_release.assert_called_once_with(10, "1.36-classic/beta", dry_run=False)
+
+
+def _channel(revision):
+    return mock.Mock(revision=revision)
+
+
+def test_promote_rolls_back_partially_released_channel(tmp_path: Path):
+    proposals = [
+        {"name": "a", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
+        {"name": "b", "snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
+        {"name": "c", "snap-channel": "1.35-classic/beta", "arch": "amd64", "revision": 6000},
+    ]
+    for name in "abc":
+        (tmp_path / f"{name}.json").write_text(json.dumps({"name": name, "passed": True}))
+    channel_map = {
+        "amd64": {"1.36-classic/beta": _channel(5934), "1.35-classic/beta": _channel(5900)},
+        "arm64": {"1.36-classic/beta": _channel(5935)},
+    }
+
+    def release(revision, channel, dry_run=False):
+        if revision == 6059:
+            raise subprocess.CalledProcessError(1, ["snapcraft"])
+
+    with (
+        mock.patch("promote_tracks.release_snap", side_effect=release) as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value=channel_map),
+        pytest.raises(promote_tracks.ChannelReleaseError, match="amd64: rolled back to r5934"),
+    ):
+        promote_tracks.promote_evaluated_proposals(proposals, tmp_path, dry_run=False)
+
+    assert mock_release.call_args_list == [
+        mock.call(6058, "1.36-classic/beta", dry_run=False),
+        mock.call(6059, "1.36-classic/beta", dry_run=False),
+        mock.call(5934, "1.36-classic/beta", dry_run=False),
+        mock.call(6000, "1.35-classic/beta", dry_run=False),
+    ]
+
+
+def test_release_channel_group_reports_arch_without_previous_revision():
+    group = [
+        {"snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
+        {"snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 6059},
+    ]
+    side_effect = [None, subprocess.CalledProcessError(1, ["snapcraft"])]
+    with mock.patch("promote_tracks.release_snap", side_effect=side_effect) as mock_release:
+        error = promote_tracks.release_channel_group(
+            "1.36-classic/beta", group, {"amd64": None, "arm64": 5935}
+        )
+    assert error is not None
+    assert "amd64: no previous revision in 1.36-classic/beta, left at r6058" in error
+    assert mock_release.call_count == 2
 
 
 def test_release_revision_cli_modes(tmp_path: Path):
