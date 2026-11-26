@@ -13,6 +13,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections import defaultdict
 from functools import cached_property
 from pathlib import Path
@@ -460,17 +461,192 @@ def _create_arch_proposals(
     return proposals
 
 
-def release_revision(args):
-    # Note: we cannot use `snapcraft promote` here because it does not allow
-    # to promote from edge to beta without manual confirmation.
-    revision, channel = args.snap_revision, args.snap_channel
-    LOG.info("Promote r%s to %s%s", revision, channel, args.dry_run and " (dry-run)" or "")
-    if args.dry_run:
+def release_snap(revision: int | str, channel: str, dry_run: bool = False):
+    """Release a single snap revision to a channel."""
+    LOG.info("Promote r%s to %s%s", revision, channel, " (dry-run)" if dry_run else "")
+    if dry_run:
         return
     subprocess.run(
-        ["/snap/bin/snapcraft", "release", util.SNAP_NAME, revision, channel],
+        ["/snap/bin/snapcraft", "release", util.SNAP_NAME, str(revision), channel],
         check=True,
     )
+
+
+def load_test_results(results_dir: Optional[str | Path]) -> dict[str, dict]:
+    """Load test outcome payloads from all JSON files in results directory."""
+    results: dict[str, dict] = {}
+    if not results_dir:
+        return results
+    results_path = Path(results_dir)
+    if not results_path.is_dir():
+        LOG.warning("Test results directory does not exist: %s", results_dir)
+        return results
+    for json_file in results_path.rglob("*.json"):
+        try:
+            with open(json_file) as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "name" in data:
+                results[data["name"]] = data
+        except (OSError, json.JSONDecodeError) as e:
+            LOG.warning("Could not parse test result file %s: %s", json_file, e)
+    return results
+
+
+def evaluate_channel_promotions(
+    proposals: list[dict], test_results: dict[str, dict]
+) -> tuple[list[dict], dict[str, list[str]]]:
+    """Evaluate proposals all-or-nothing per target channel."""
+    channel_groups: dict[str, list[dict]] = defaultdict(list)
+    for p in proposals:
+        channel = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+        channel_groups[channel].append(p)
+
+    approved_proposals: list[dict] = []
+    blocked_channels: dict[str, list[str]] = {}
+
+    for channel, group in channel_groups.items():
+        all_passed = True
+        failure_reasons: list[str] = []
+
+        for p in group:
+            p_name = p.get("name")
+            p_arch = p.get("arch", "unknown")
+            p_rev = p.get("revision", "unknown")
+            result = test_results.get(p_name) if p_name else None
+
+            if result is None:
+                all_passed = False
+                failure_reasons.append(
+                    f"{p_arch} (r{p_rev}): no test results found (job cancelled or skipped)"
+                )
+            elif not result.get("passed"):
+                all_passed = False
+                e2e = result.get("e2e_result", "unknown")
+                upgrade = result.get("upgrade_result", "unknown")
+                failure_reasons.append(
+                    f"{p_arch} (r{p_rev}): tests failed (e2e: {e2e}, upgrade: {upgrade})"
+                )
+
+        if all_passed:
+            approved_proposals.extend(group)
+            arches = ", ".join(f"{p.get('arch')} (r{p.get('revision')})" for p in group)
+            LOG.info("Approved promotion to %s (%d proposal(s)): %s", channel, len(group), arches)
+        else:
+            blocked_channels[channel] = failure_reasons
+            LOG.warning(
+                "Blocked promotion to %s: %s",
+                channel,
+                "; ".join(failure_reasons),
+            )
+
+    return approved_proposals, blocked_channels
+
+
+def promote_evaluated_proposals(
+    proposals: list[dict], results_dir: Optional[str | Path], dry_run: bool = False
+) -> list[dict]:
+    """Evaluate channel groups and promote all approved proposals."""
+    test_results = load_test_results(results_dir)
+    approved, blocked = evaluate_channel_promotions(proposals, test_results)
+
+    for p in approved:
+        channel = p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
+        release_snap(p["revision"], channel, dry_run=dry_run)
+
+    LOG.info(
+        "Promotion summary: %d/%d proposals approved across %d channels (%d channels blocked)",
+        len(approved),
+        len(proposals),
+        len({p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}" for p in approved}),
+        len(blocked),
+    )
+    return approved
+
+
+def release_revision(args):
+    """Promote snap revisions, either single-revision or batch all-or-nothing."""
+    dry_run = getattr(args, "dry_run", False)
+    if getattr(args, "proposals", None):
+        proposals_raw = args.proposals
+        if os.path.isfile(proposals_raw):
+            with open(proposals_raw) as f:
+                proposals = json.load(f)
+        else:
+            proposals = json.loads(proposals_raw)
+        promote_evaluated_proposals(proposals, getattr(args, "results_dir", None), dry_run=dry_run)
+        return
+
+    if getattr(args, "snap_revision", None) and getattr(args, "snap_channel", None):
+        release_snap(args.snap_revision, args.snap_channel, dry_run=dry_run)
+        return
+
+    raise ValueError(
+        "Must specify either (--snap-revision and --snap-channel) or (--proposals [--results-dir])"
+    )
+
+
+def sanitize_artifact_name(name: str) -> str:
+    """Sanitize a proposal name for use as a GitHub Actions artifact name."""
+    return re.sub(r"[^a-zA-Z0-9._-]+", ".", name)
+
+
+def compute_test_outcome(
+    e2e_result: str,
+    upgrade_result: str,
+    upgrade_channels: str | list | None,
+) -> tuple[bool, bool]:
+    """Compute whether tests passed, taking into account empty upgrade test matrix."""
+    if isinstance(upgrade_channels, str):
+        try:
+            channels = json.loads(upgrade_channels) if upgrade_channels.strip() else []
+        except json.JSONDecodeError:
+            # An unreadable matrix must not count as "no upgrade tests required".
+            LOG.warning("Could not parse upgrade channels %r", upgrade_channels)
+            channels = [upgrade_channels]
+    else:
+        channels = upgrade_channels or []
+
+    has_upgrade_tests = bool(channels)
+    upgrade_ok = (upgrade_result == "success") or (
+        upgrade_result == "skipped" and not has_upgrade_tests
+    )
+    passed = (e2e_result == "success") and upgrade_ok
+    return passed, upgrade_ok
+
+
+def record_test_result(args):
+    """Record proposal test outcome to JSON file and emit step outputs."""
+    safe_name = sanitize_artifact_name(args.proposal_name)
+    passed, _ = compute_test_outcome(
+        args.e2e_result,
+        args.upgrade_result,
+        getattr(args, "upgrade_channels", "[]"),
+    )
+
+    data = {
+        "name": args.proposal_name,
+        "track": args.track,
+        "next_risk": args.next_risk,
+        "snap_channel": args.snap_channel,
+        "arch": args.arch,
+        "revision": str(args.revision),
+        "passed": passed,
+        "e2e_result": args.e2e_result,
+        "upgrade_result": args.upgrade_result,
+    }
+
+    out_dir = Path(args.output_dir or (Path(tempfile.gettempdir()) / "results"))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    file_path = out_dir / f"{safe_name}.json"
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+    artifact_name = f"test-result-{safe_name}"
+    LOG.info("Recorded outcome for %s to %s (passed=%s)", args.proposal_name, file_path, passed)
+
+    core.set_output("artifact-name", artifact_name)
+    core.set_output("artifact-path", str(file_path))
+    return file_path
 
 
 def install_snapcraft(args=None):
@@ -749,17 +925,61 @@ def build_parser() -> argparse.ArgumentParser:
     promote_args = subparsers.add_parser("promote", help="Promote the proposed revisions")
     promote_args.add_argument(
         "--snap-revision",
-        required=True,
-        help="The snap revision to promote",
+        required=False,
+        help="The snap revision to promote (single revision mode)",
         dest="snap_revision",
     )
     promote_args.add_argument(
         "--snap-channel",
-        required=True,
-        help="The snap channel to promote to",
+        required=False,
+        help="The snap channel to promote to (single revision mode)",
         dest="snap_channel",
     )
+    promote_args.add_argument(
+        "--proposals",
+        required=False,
+        help="JSON string or file path containing proposals to evaluate and promote",
+    )
+    promote_args.add_argument(
+        "--results-dir",
+        required=False,
+        help="Directory containing test result JSON files",
+        dest="results_dir",
+    )
     promote_args.set_defaults(func=release_revision)
+
+    record_args = subparsers.add_parser("record-result", help="Record proposal test outcome")
+    record_args.add_argument(
+        "--proposal-name", required=True, dest="proposal_name", help="Proposal name"
+    )
+    record_args.add_argument("--track", required=True, help="Snap track")
+    record_args.add_argument(
+        "--next-risk", required=True, dest="next_risk", help="Next risk level"
+    )
+    record_args.add_argument(
+        "--snap-channel", required=True, dest="snap_channel", help="Target snap channel"
+    )
+    record_args.add_argument("--arch", required=True, help="Architecture")
+    record_args.add_argument("--revision", required=True, help="Snap revision")
+    record_args.add_argument(
+        "--e2e-result", required=True, dest="e2e_result", help="E2E test result"
+    )
+    record_args.add_argument(
+        "--upgrade-result", required=True, dest="upgrade_result", help="Upgrade test result"
+    )
+    record_args.add_argument(
+        "--upgrade-channels",
+        default="[]",
+        dest="upgrade_channels",
+        help="JSON-encoded upgrade channels matrix",
+    )
+    record_args.add_argument(
+        "--output-dir",
+        default=None,
+        dest="output_dir",
+        help="Directory where result JSON is stored",
+    )
+    record_args.set_defaults(func=record_test_result)
 
     install_snapcraft_args = subparsers.add_parser(
         "install-snapcraft", help="Install snapcraft classic with retries"

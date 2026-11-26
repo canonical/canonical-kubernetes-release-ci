@@ -681,6 +681,55 @@ def test_resolve_propose_inputs_preserves_backslashes(monkeypatch: pytest.Monkey
     assert re.fullmatch(cap_pattern, "1x36-classic") is None
 
 
+def test_sanitize_artifact_name():
+    assert (
+        promote_tracks.sanitize_artifact_name("k8s-1.36-classic/beta-amd64")
+        == "k8s-1.36-classic.beta-amd64"
+    )
+    assert promote_tracks.sanitize_artifact_name("foo:bar/baz") == "foo.bar.baz"
+
+
+def test_compute_test_outcome():
+    assert promote_tracks.compute_test_outcome("success", "success", "[]") == (True, True)
+    assert promote_tracks.compute_test_outcome("failure", "success", "[]") == (False, True)
+    assert promote_tracks.compute_test_outcome("success", "failure", "[]") == (False, False)
+    # Empty upgrade matrix skipped is treated as success
+    assert promote_tracks.compute_test_outcome("success", "skipped", "[]") == (True, True)
+    # Non-empty upgrade matrix skipped is treated as not passed
+    assert promote_tracks.compute_test_outcome("success", "skipped", '[["a", "b"]]') == (
+        False,
+        False,
+    )
+    # A malformed upgrade matrix with a skipped upgrade job fails closed
+    assert promote_tracks.compute_test_outcome("success", "skipped", "[not-json") == (
+        False,
+        False,
+    )
+
+
+def test_record_test_result(tmp_path: Path):
+    test_args = argparse.Namespace(
+        proposal_name="k8s-1.36-classic/beta-amd64",
+        track="1.36-classic",
+        next_risk="beta",
+        snap_channel="1.36-classic/beta",
+        arch="amd64",
+        revision="6058",
+        e2e_result="success",
+        upgrade_result="skipped",
+        upgrade_channels="[]",
+        output_dir=str(tmp_path),
+    )
+    with mock.patch("promote_tracks.core.set_output") as mock_set_output:
+        file_path = promote_tracks.record_test_result(test_args)
+        assert file_path.is_file()
+        data = json.loads(file_path.read_text())
+        assert data["name"] == "k8s-1.36-classic/beta-amd64"
+        assert data["passed"] is True
+        mock_set_output.assert_any_call("artifact-name", "test-result-k8s-1.36-classic.beta-amd64")
+        mock_set_output.assert_any_call("artifact-path", str(file_path))
+
+
 def test_install_snapcraft():
     # Dry run returns without executing
     with mock.patch("promote_tracks.subprocess.run") as mock_run:
@@ -886,3 +935,143 @@ def test_create_proposal_ignore_arches_allows_single_arch():
 
     assert len(proposals) > 0
     assert all(p["arch"] == "amd64" for p in proposals)
+
+
+def test_load_test_results(tmp_path: Path):
+    assert promote_tracks.load_test_results(None) == {}
+    assert promote_tracks.load_test_results(tmp_path / "nonexistent") == {}
+
+    sub_dir = tmp_path / "subdir"
+    sub_dir.mkdir()
+    (sub_dir / "res1.json").write_text(json.dumps({"name": "prop-1", "passed": True}))
+    (tmp_path / "res2.json").write_text(json.dumps({"name": "prop-2", "passed": False}))
+    (tmp_path / "invalid.json").write_text("not json")
+    (tmp_path / "list.json").write_text("[]")
+
+    results = promote_tracks.load_test_results(tmp_path)
+    assert len(results) == 2
+    assert results["prop-1"]["passed"] is True
+    assert results["prop-2"]["passed"] is False
+
+
+def test_evaluate_channel_promotions_all_pass():
+    proposals = [
+        {"name": "p1", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 10},
+        {"name": "p2", "snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 11},
+    ]
+    test_results = {
+        "p1": {"name": "p1", "passed": True},
+        "p2": {"name": "p2", "passed": True},
+    }
+    approved, blocked = promote_tracks.evaluate_channel_promotions(proposals, test_results)
+    assert approved == proposals
+    assert blocked == {}
+
+
+def test_evaluate_channel_promotions_one_arch_fails_blocks_channel():
+    proposals = [
+        {"name": "p1", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 10},
+        {"name": "p2", "snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 11},
+    ]
+    test_results = {
+        "p1": {
+            "name": "p1",
+            "passed": False,
+            "e2e_result": "failure",
+            "upgrade_result": "success",
+        },
+        "p2": {"name": "p2", "passed": True},
+    }
+    approved, blocked = promote_tracks.evaluate_channel_promotions(proposals, test_results)
+    assert approved == []
+    assert "1.36-classic/beta" in blocked
+    assert any("amd64" in r for r in blocked["1.36-classic/beta"])
+
+
+def test_evaluate_channel_promotions_missing_result_counts_as_failed():
+    proposals = [
+        {"name": "p1", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 10},
+        {"name": "p2", "snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 11},
+    ]
+    test_results = {
+        "p2": {"name": "p2", "passed": True},
+    }
+    approved, blocked = promote_tracks.evaluate_channel_promotions(proposals, test_results)
+    assert approved == []
+    assert "1.36-classic/beta" in blocked
+    assert any("no test results found" in r for r in blocked["1.36-classic/beta"])
+
+
+def test_evaluate_channel_promotions_independent_channels():
+    p_136 = [
+        {"name": "p1", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 10},
+        {"name": "p2", "snap-channel": "1.36-classic/beta", "arch": "arm64", "revision": 11},
+    ]
+    p_135 = [
+        {"name": "p3", "snap-channel": "1.35-classic/beta", "arch": "amd64", "revision": 20},
+        {"name": "p4", "snap-channel": "1.35-classic/beta", "arch": "arm64", "revision": 21},
+    ]
+    proposals = p_136 + p_135
+    test_results = {
+        "p1": {"name": "p1", "passed": False},
+        "p2": {"name": "p2", "passed": True},
+        "p3": {"name": "p3", "passed": True},
+        "p4": {"name": "p4", "passed": True},
+    }
+    approved, blocked = promote_tracks.evaluate_channel_promotions(proposals, test_results)
+    assert approved == p_135
+    assert "1.36-classic/beta" in blocked
+    assert "1.35-classic/beta" not in blocked
+
+
+def test_evaluate_channel_promotions_single_arch_releasable():
+    proposals = [
+        {"name": "p1", "snap-channel": "1.34-classic/candidate", "arch": "amd64", "revision": 30},
+    ]
+    test_results = {"p1": {"name": "p1", "passed": True}}
+    approved, blocked = promote_tracks.evaluate_channel_promotions(proposals, test_results)
+    assert approved == proposals
+    assert blocked == {}
+
+
+def test_promote_evaluated_proposals(tmp_path: Path):
+    proposals = [
+        {"name": "p1", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 10},
+    ]
+    (tmp_path / "p1.json").write_text(json.dumps({"name": "p1", "passed": True}))
+
+    with mock.patch("promote_tracks.release_snap") as mock_release:
+        approved = promote_tracks.promote_evaluated_proposals(proposals, tmp_path, dry_run=False)
+        assert approved == proposals
+        mock_release.assert_called_once_with(10, "1.36-classic/beta", dry_run=False)
+
+
+def test_release_revision_cli_modes(tmp_path: Path):
+    # Single-revision mode
+    with mock.patch("promote_tracks.release_snap") as mock_release:
+        single_args = argparse.Namespace(
+            snap_revision="6058", snap_channel="1.36-classic/beta", dry_run=False
+        )
+        promote_tracks.release_revision(single_args)
+        mock_release.assert_called_once_with("6058", "1.36-classic/beta", dry_run=False)
+
+    # Proposals JSON string mode
+    proposals = [{"name": "p1", "snap-channel": "1.36-classic/beta", "revision": 6058}]
+    with mock.patch("promote_tracks.promote_evaluated_proposals") as mock_eval:
+        str_args = argparse.Namespace(
+            proposals=json.dumps(proposals), results_dir="res_dir", dry_run=True
+        )
+        promote_tracks.release_revision(str_args)
+        mock_eval.assert_called_once_with(proposals, "res_dir", dry_run=True)
+
+    # Proposals JSON file mode
+    prop_file = tmp_path / "proposals.json"
+    prop_file.write_text(json.dumps(proposals))
+    with mock.patch("promote_tracks.promote_evaluated_proposals") as mock_eval:
+        file_args = argparse.Namespace(proposals=str(prop_file), results_dir=None, dry_run=False)
+        promote_tracks.release_revision(file_args)
+        mock_eval.assert_called_once_with(proposals, None, dry_run=False)
+
+    # Missing both raises ValueError
+    with pytest.raises(ValueError, match="Must specify either"):
+        promote_tracks.release_revision(argparse.Namespace())
