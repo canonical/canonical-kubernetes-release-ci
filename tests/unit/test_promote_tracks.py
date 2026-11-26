@@ -1082,57 +1082,44 @@ def _passing(tmp_path: Path, proposals: list[dict]) -> None:
         )
 
 
-def test_promote_keeps_newest_duplicate_per_arch(tmp_path: Path):
+def test_newest_per_target_keeps_newest_revision():
     # Fast path from edge and an aged beta both target candidate for amd64.
-    proposals = [
-        {
-            "name": "beta",
-            "snap-channel": "1.37-classic/candidate",
-            "arch": "amd64",
-            "revision": 6050,
-            "version": "v1.37.1",
-        },
-        {
-            "name": "edge",
-            "snap-channel": "1.37-classic/candidate",
-            "arch": "amd64",
-            "revision": 6062,
-            "version": "v1.37.1",
-        },
-    ]
-    _passing(tmp_path, proposals)
-    channel_map = {"amd64": {"1.37-classic/candidate": _channel(5822, "v1.37.1")}}
-    with (
-        mock.patch("promote_tracks.release_snap") as mock_release,
-        mock.patch("promote_tracks._create_channel_map", return_value=channel_map),
-    ):
-        released = promote_tracks.promote_evaluated_proposals(proposals, tmp_path)
-    assert released == [proposals[1]]
-    mock_release.assert_called_once_with(6062, "1.37-classic/candidate", dry_run=False)
+    beta = {"snap-channel": "1.37-classic/candidate", "arch": "amd64", "revision": 6050}
+    edge = {"snap-channel": "1.37-classic/candidate", "arch": "amd64", "revision": 6062}
+    arm64 = {"snap-channel": "1.37-classic/candidate", "arch": "arm64", "revision": 6069}
+    stable = {"snap-channel": "1.37-classic/stable", "arch": "amd64", "revision": 6050}
+    assert promote_tracks._newest_per_target([edge, beta, arm64, stable]) == [edge, arm64, stable]
+    assert promote_tracks._newest_per_target([beta, edge]) == [edge]
+
+
+def _proposal(name, arch, revision, version):
+    return {
+        "name": name,
+        "snap-channel": "1.34-classic/candidate",
+        "arch": arch,
+        "revision": revision,
+        "version": version,
+    }
 
 
 @pytest.mark.parametrize(
-    "arm64_channel, ignore_arches, blocked",
+    "extra, arm64_channel, ignore_arches, blocked",
     [
-        (_channel(5830, "v1.34.12"), "", True),  # arm64 would stay on the old version
-        (_channel(5830, "v1.34.13"), "", False),  # arm64 already on the new version
-        (None, "", False),  # arm64 never published in this channel
-        (_channel(5830, "v1.34.12"), "arm64", False),  # arm64 explicitly ignored
+        ([], _channel(5830, "v1.34.12"), "", True),  # arm64 would stay on the old version
+        ([], _channel(5830, "v1.34.13"), "", False),  # arm64 already on the new version
+        ([], None, "", False),  # arm64 never published in this channel
+        ([], _channel(5830, "v1.34.12"), "arm64", False),  # arm64 explicitly ignored
+        # arm64 proposed, but on another version than amd64
+        ([_proposal("b", "arm64", 6074, "v1.34.12")], _channel(5830, "v1.34.12"), "", True),
+        # two proposals for amd64
+        ([_proposal("b", "amd64", 6070, "v1.34.13")], None, "", True),
     ],
 )
-def test_promote_blocks_channel_missing_an_arch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, arm64_channel, ignore_arches, blocked
+def test_promote_blocks_channel_split_across_versions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extra, arm64_channel, ignore_arches, blocked
 ):
     monkeypatch.setenv("IGNORE_ARCHES", ignore_arches)
-    proposals = [
-        {
-            "name": "a",
-            "snap-channel": "1.34-classic/candidate",
-            "arch": "amd64",
-            "revision": 6066,
-            "version": "v1.34.13",
-        },
-    ]
+    proposals = [_proposal("a", "amd64", 6066, "v1.34.13"), *extra]
     _passing(tmp_path, proposals)
     channel_map = {
         "amd64": {"1.34-classic/candidate": _channel(5945, "v1.34.12")},

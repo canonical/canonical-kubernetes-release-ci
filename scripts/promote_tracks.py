@@ -250,6 +250,7 @@ def create_proposal(args):
 
     for arch, channels in channel_map.items():
         proposals.extend(_create_arch_proposals(arch, channels, args, stale_skips=stale_skips))
+    proposals = _newest_per_target(proposals)
 
     if stale_skips:
         filtered = []
@@ -288,6 +289,26 @@ def create_proposal(args):
     if args.gh_action:
         core.set_output("proposals", json.dumps(proposals))
     return proposals
+
+
+def _newest_per_target(proposals: list[dict]) -> list[dict]:
+    """Keep only the newest proposal per target channel and arch.
+
+    The new-stable fast path and an aged lower risk can both target the same channel.
+    Both would share a proposal name, and so a test job and a result artifact.
+    """
+    newest: dict[tuple, dict] = {}
+    for p in proposals:
+        key = (p["snap-channel"], p["arch"])
+        kept = newest.get(key)
+        if kept is None or int(p["revision"]) > int(kept["revision"]):
+            newest[key] = p
+    for p in proposals:
+        if p is not newest[(p["snap-channel"], p["arch"])]:
+            LOG.info(
+                "Dropping duplicate %s r%s for %s", p["arch"], p["revision"], p["snap-channel"]
+            )
+    return list(newest.values())
 
 
 def _create_arch_proposals(
@@ -562,40 +583,32 @@ def _proposal_channel(p: dict) -> str:
     return p.get("snap-channel") or f"{p.get('track')}/{p.get('next-risk')}"
 
 
-def _one_per_arch(channel: str, group: list[dict]) -> list[dict]:
-    """Keep the newest proposal per arch.
-
-    The new-stable fast path and an aged lower risk can both target the same channel.
-    """
-    newest: dict[str, dict] = {}
-    for p in group:
-        kept = newest.get(p.get("arch", "unknown"))
-        if kept is None or int(p["revision"]) > int(kept["revision"]):
-            newest[p.get("arch", "unknown")] = p
-    for p in group:
-        if p is not newest[p.get("arch", "unknown")]:
-            LOG.info("Dropping duplicate %s r%s for %s", p.get("arch"), p["revision"], channel)
-    return list(newest.values())
-
-
-def _unproposed_arches(
+def _split_reasons(
     channel: str,
     group: list[dict],
     channel_map: dict[str, dict[str, Channel]],
     ignored_arches: set[str],
 ) -> list[str]:
-    """Describe arches that releasing `group` would leave on another version in `channel`."""
-    proposed = {p.get("arch") for p in group}
-    versions = {p.get("version") for p in group}
+    """Describe why releasing `group` would leave `channel` split across versions."""
     reasons = []
+    arches = [str(p.get("arch")) for p in group]
+    if duplicates := sorted({a for a in arches if arches.count(a) > 1}):
+        reasons.append(f"several proposals for {', '.join(duplicates)}")
+    versions = {p.get("version") for p in group}
+    if len(versions) > 1:
+        reasons.append(
+            f"proposals carry different versions ({', '.join(sorted(map(str, versions)))})"
+        )
+        return reasons
+    (version,) = versions
     for arch, channels in sorted(channel_map.items()):
         current = channels.get(channel)
-        if arch in proposed or arch in ignored_arches or not current or not current.revision:
+        if arch in arches or arch in ignored_arches or not current or not current.revision:
             continue
-        if current.version not in versions:
+        if current.version != version:
             reasons.append(
                 f"{arch} (r{current.revision}, {current.version}): no approved proposal, "
-                f"would stay behind {'/'.join(sorted(map(str, versions)))}"
+                f"would stay behind {version}"
             )
     return reasons
 
@@ -667,10 +680,9 @@ def promote_evaluated_proposals(
     released: list[dict] = []
     failures: dict[str, str] = {}
     for channel, group in groups.items():
-        group = _one_per_arch(channel, group)
-        if missing := _unproposed_arches(channel, group, channel_map, ignored_arches):
-            LOG.warning("Blocked promotion to %s: %s", channel, "; ".join(missing))
-            blocked[channel] = missing
+        if reasons := _split_reasons(channel, group, channel_map, ignored_arches):
+            LOG.warning("Blocked promotion to %s: %s", channel, "; ".join(reasons))
+            blocked[channel] = reasons
             continue
         previous: dict[str, Optional[int]] = {}
         for p in group:
