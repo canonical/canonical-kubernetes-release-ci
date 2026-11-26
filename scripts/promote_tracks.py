@@ -601,6 +601,16 @@ def _split_reasons(
         )
         return reasons
     (version,) = versions
+    for p in group:
+        arch = p.get("arch", "unknown")
+        current = channel_map.get(arch, {}).get(channel)
+        if current and current.revision and int(p["revision"]) <= int(current.revision):
+            reasons.append(
+                f"{arch}: proposed r{p['revision']} is not newer than the live r{current.revision} "
+                f"in {channel} (stale proposal, likely superseded by another run)"
+            )
+    if reasons:
+        return reasons
     for arch, channels in sorted(channel_map.items()):
         current = channels.get(channel)
         if arch in arches or arch in ignored_arches or not current or not current.revision:
@@ -664,9 +674,10 @@ def promote_evaluated_proposals(
 ) -> list[dict]:
     """Evaluate channel groups and promote all approved proposals.
 
-    A channel is only released when no other published arch would be left on a different
-    version. Returns the released proposals. Raises ChannelReleaseError if any approved
-    channel could not be fully released.
+    A channel is only released when every proposal is newer than the live revision and no
+    other published arch would be left on a different version. If more than one arch has no
+    previous revision in the channel, only one is released this run. Returns the released
+    proposals. Raises ChannelReleaseError if any approved channel could not be fully released.
     """
     test_results = load_test_results(results_dir)
     approved, blocked = evaluate_channel_promotions(proposals, test_results)
@@ -689,6 +700,28 @@ def promote_evaluated_proposals(
             arch = p.get("arch", "unknown")
             current = channel_map.get(arch, {}).get(channel)
             previous[arch] = current.revision if current else None
+
+        # An arch with no previous revision can't be rolled back. Releasing more than one per
+        # run means a later failure could strand an earlier one with nothing to roll back to,
+        # so only the first (by arch name) goes out; the rest wait for a later run, once the
+        # first has a previous revision of its own.
+        unrecoverable = sorted(
+            (p for p in group if previous.get(p.get("arch", "unknown")) is None),
+            key=lambda p: str(p.get("arch")),
+        )
+        if len(unrecoverable) > 1:
+            deferred = unrecoverable[1:]
+            deferred_ids = {id(p) for p in deferred}
+            group = [p for p in group if id(p) not in deferred_ids]
+            for p in deferred:
+                LOG.info(
+                    "Deferring %s r%s for %s to a later run (another arch has no previous "
+                    "revision there either)",
+                    p.get("arch"),
+                    p["revision"],
+                    channel,
+                )
+
         if error := release_channel_group(channel, group, previous, dry_run=dry_run):
             LOG.error("Failed to promote %s: %s", channel, error)
             failures[channel] = error

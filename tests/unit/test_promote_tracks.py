@@ -1134,6 +1134,30 @@ def test_promote_blocks_channel_split_across_versions(
     assert mock_release.called is not blocked
 
 
+@pytest.mark.parametrize(
+    "live_revision, blocked",
+    [
+        (5945, False),  # live revision older than the proposal: safe to release
+        (6066, True),  # live revision equals the proposal: already released by another run
+        (6070, True),  # live revision newer than the proposal: stale, would be a downgrade
+    ],
+)
+def test_promote_blocks_stale_proposal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, live_revision, blocked
+):
+    monkeypatch.setenv("IGNORE_ARCHES", "")
+    proposals = [_proposal("a", "amd64", 6066, "v1.34.13")]
+    _passing(tmp_path, proposals)
+    channel_map = {"amd64": {"1.34-classic/candidate": _channel(live_revision, "v1.34.12")}}
+    with (
+        mock.patch("promote_tracks.release_snap") as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value=channel_map),
+    ):
+        released = promote_tracks.promote_evaluated_proposals(proposals, tmp_path)
+    assert released == ([] if blocked else proposals)
+    assert mock_release.called is not blocked
+
+
 def test_promote_rolls_back_partially_released_channel(tmp_path: Path):
     proposals = [
         {"name": "a", "snap-channel": "1.36-classic/beta", "arch": "amd64", "revision": 6058},
@@ -1165,6 +1189,35 @@ def test_promote_rolls_back_partially_released_channel(tmp_path: Path):
         mock.call(5935, "1.36-classic/beta", dry_run=False),
         mock.call(6000, "1.35-classic/beta", dry_run=False),
     ]
+
+
+def test_promote_defers_second_unrecoverable_arch(tmp_path: Path):
+    # Both arches are new to this channel (e.g. the track's first beta release), so neither
+    # can be rolled back; only one goes out this run, in case the other fails.
+    proposals = [
+        {
+            "name": "a",
+            "snap-channel": "1.36-classic/beta",
+            "arch": "amd64",
+            "revision": 6058,
+            "version": "v1.36.0",
+        },
+        {
+            "name": "b",
+            "snap-channel": "1.36-classic/beta",
+            "arch": "arm64",
+            "revision": 6059,
+            "version": "v1.36.0",
+        },
+    ]
+    _passing(tmp_path, proposals)
+    with (
+        mock.patch("promote_tracks.release_snap") as mock_release,
+        mock.patch("promote_tracks._create_channel_map", return_value={}),
+    ):
+        released = promote_tracks.promote_evaluated_proposals(proposals, tmp_path)
+    assert released == [proposals[0]]
+    mock_release.assert_called_once_with(6058, "1.36-classic/beta", dry_run=False)
 
 
 def test_release_channel_group_releases_unrecoverable_arch_last():
